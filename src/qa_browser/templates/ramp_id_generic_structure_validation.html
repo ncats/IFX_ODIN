@@ -9,7 +9,6 @@
             {% else %}
             {{ "{:,}".format(validation.inconsistent_clique_count) }} mixed clique{{ "" if validation.inconsistent_clique_count == 1 else "s" }}
             {% endif %}
-            · {{ "{:,}".format(validation.generic_unknown_clique_count) }} classification gap{{ "" if validation.generic_unknown_clique_count == 1 else "s" }}
         </p>
         {% else %}
         <p>Not computed for this stage.</p>
@@ -22,7 +21,6 @@
         {% else %}
         A mixed clique contains both explicitly generic and explicitly specific structures; this is observational because the separation rule is not active yet.
         {% endif %}
-        A classification gap contains a generic structure together with identifiers whose structure class is still unknown.
     </p>
     <p>Pending changes do not alter this saved stage. Publish them and rerun the pipeline to evaluate their effect.</p>
     <p class="metabolite-id-pending-summary" data-cart-summary="generic" hidden></p>
@@ -35,8 +33,6 @@
                 <td>
                     {% if warning.status == "inconsistent" %}
                     <span class="metabolite-assertion-status metabolite-assertion-status-{{ 'split' if validation.rule_enabled else 'missing' }}">{{ "Failure" if validation.rule_enabled else "Mixed" }}</span>
-                    {% else %}
-                    <span class="metabolite-assertion-status metabolite-assertion-status-missing">Classification gap</span>
                     {% endif %}
                 </td>
                 <td><strong>#{{ warning.rank_by_size }}</strong><div>{{ "{:,}".format(warning.size) }} IDs</div><div>Review ID: <span class="mono">{{ warning.review_id }}</span></div></td>

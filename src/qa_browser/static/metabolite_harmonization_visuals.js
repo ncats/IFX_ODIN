@@ -99,11 +99,11 @@
             && operation.target?.id === data.id
         );
         if (participation.state_available === false) {
-            return '<section class="metabolite-id-detail-section metabolite-record-participation">'
-                + '<h4>Harmonization participation</h4>'
+            return '<div class="metabolite-curation-subsection metabolite-record-participation">'
+                + '<h5>Record participation</h5>'
                 + '<p class="metabolite-property-state-error" role="alert">'
                 + escapeHtml(participation.state_error || "Published suppression state is unavailable.")
-                + '</p></section>';
+                + '</p></div>';
         }
         const suppressed = participation.is_suppressed === true;
         const decision = participation.decision || {};
@@ -113,9 +113,6 @@
             : pending?.action === "restore_record" ? "Pending restoration" : "";
         const action = suppressed ? "restore_record" : "suppress_record";
         const actionLabel = suppressed ? "Restore to harmonization" : "Suppress from harmonization";
-        const stageStatus = data.is_active_in_stage === false
-            ? "This identifier is not active in the selected saved stage."
-            : "This identifier is present in the selected saved stage.";
         const published = publisher || decision.published_at || decision.batch_id
             ? '<small>'
                 + (decision.batch_id ? 'Batch ' + escapeHtml(decision.batch_id) : "Published decision")
@@ -123,16 +120,12 @@
                 + (publisher ? ' · by ' + escapeHtml(publisher) : "")
                 + '</small>'
             : "";
-        return '<section class="metabolite-id-detail-section metabolite-record-participation">'
-            + '<h4>Harmonization participation</h4>'
+        return '<div class="metabolite-curation-subsection metabolite-record-participation">'
+            + '<h5>Record participation</h5>'
             + '<p><strong class="metabolite-participation-status '
             + (suppressed ? "is-suppressed" : "is-active") + '">'
             + (suppressed ? "Suppressed" : "Active") + '</strong>'
             + (pendingLabel ? ' · <strong>' + escapeHtml(pendingLabel) + '</strong>' : "") + '</p>'
-            + '<p>' + (suppressed
-                ? "Excluded from mappings, structure-based merges, clique membership, validation, and harmonized output. The raw source record remains available here."
-                : "This identifier can participate in mapping and merge rules.") + '</p>'
-            + '<small>' + escapeHtml(stageStatus) + '</small>'
             + (decision.note ? '<p><strong>Published rationale:</strong> ' + escapeHtml(decision.note) + '</p>' : "")
             + published
             + '<form data-metabolite-record-participation-form data-curation-target-id="'
@@ -144,23 +137,21 @@
                 : "Optional reason for restoration") + '"></label>'
             + '<button type="submit" class="btn" ' + (pending ? "disabled" : "") + '>'
             + (pending ? escapeHtml(pendingLabel) : escapeHtml(actionLabel)) + '</button></form>'
-            + '<small>Publishing changes reusable curation state. Existing stages must be synced.</small>'
-            + '</section>';
+            + '</div>';
     }
 
-    function renderGenericStructureEvidence(data) {
+    function renderGenericStructureCuration(data) {
         const classification = data.generic_structure || {};
         const pending = pendingGenericStructureDecision(data.id);
         const stateAvailable = classification.state_available !== false;
         const rows = [
-            detailRow("Published effective status", genericStatusLabel(classification.effective)),
-            detailRow("Evidence graph status", genericStatusLabel(classification.detected)),
-            detailRow("Published record curation", !stateAvailable
+            detailRow("Raw", genericStatusLabel(classification.detected)),
+            detailRow("Curated", !stateAvailable
                 ? "Unavailable"
                 : classification.has_published_override
                     ? genericStatusLabel(classification.published_override)
-                    : "None"),
-            detailRow("Reason", classification.reason || "No structure evidence available"),
+                    : "No override"),
+            detailRow("Effective", genericStatusLabel(classification.effective)),
             detailRow("Pending change", pending
                 ? (pending.mode === "remove_override"
                     ? "Use evidence graph value"
@@ -168,29 +159,46 @@
                 : "None"),
         ].filter(Boolean).join("");
         const editor = stateAvailable ? `<form data-generic-classification-form data-curation-target-id="${escapeHtml(data.id || "")}">
-                <label>Change classification
-                    <select data-generic-classification-value>
-                        <option value="">Choose…</option>
-                        <option value="true">Generic</option>
-                        <option value="false">Specific / non-generic</option>
-                        <option value="null">Unknown / unclassified</option>
-                        ${classification.has_published_override
-                            ? '<option value="detected">Use evidence graph value</option>'
-                            : ''}
-                    </select>
-                </label>
+                <fieldset class="metabolite-generic-choice">
+                    <legend>Mark as</legend>
+                    <label><input type="radio" name="generic-structure" value="true" data-generic-classification-value> <span>Generic</span></label>
+                    <label><input type="radio" name="generic-structure" value="false" data-generic-classification-value> <span>Specific</span></label>
+                    <label><input type="radio" name="generic-structure" value="null" data-generic-classification-value> <span>Unknown</span></label>
+                </fieldset>
                 <label>Rationale <input type="text" data-generic-classification-note required
                     placeholder="Why should this classification change?"></label>
-                <button type="submit" class="btn">Add change to review</button>
+                <div class="metabolite-curation-form-actions">
+                    <button type="submit" class="btn">Queue classification</button>
+                    ${classification.has_published_override
+                        ? '<button type="submit" class="btn btn-secondary" data-generic-classification-choice="detected">Use raw value</button>'
+                        : ''}
+                </div>
             </form>` : `<p class="metabolite-property-state-error" role="alert">${escapeHtml(
                 classification.state_error
                 || "Published record-property curation state is unavailable. Classification editing is disabled."
             )}</p>`;
-        return `<section class="metabolite-id-detail-section metabolite-generic-classification">
-            <h4>Generic-structure evidence</h4>
+        return `<div class="metabolite-curation-subsection metabolite-generic-classification">
+            <h5>Generic structure</h5>
             <div class="ramp-id-details">${rows}</div>
             ${editor}
-            ${data.record_url ? `<a href="${escapeHtml(data.record_url)}">Open record and curate fields</a>` : ""}
+        </div>`;
+    }
+
+    function renderCurationPanel(data) {
+        const entity = data.chemical_entity || {};
+        const recordLinks = [
+            data.record_url
+                ? `<a href="${escapeHtml(data.record_url)}">Open MetaboliteIdentifier record</a>`
+                : "",
+            entity.record_url
+                ? `<a href="${escapeHtml(entity.record_url)}">Open ChemicalEntity record</a>`
+                : "",
+        ].filter(Boolean).join("");
+        return `<section class="metabolite-id-detail-section metabolite-node-curation">
+            <h4>Curation</h4>
+            ${recordLinks ? `<nav class="metabolite-record-links" aria-label="Exact source records">${recordLinks}</nav>` : ""}
+            ${renderGenericStructureCuration(data)}
+            ${renderHarmonizationParticipation(data)}
         </section>`;
     }
 
@@ -210,14 +218,8 @@
             : "";
         const identifierRows = [
             detailRow("ID", `<code>${escapeHtml(data.id || "")}</code>`, true),
-            detailRow("Record", data.record_url
-                ? `<a href="${escapeHtml(data.record_url)}">Open record and curate fields</a>`
-                : "", true),
             detailRow("Source", sourceLink, true),
-            detailRow("Prefix", data.prefix),
             detailRow("Names", formatInlineList(data.names || [], 6), true),
-            detailRow("Name count", data.name_count),
-            detailRow("Synonym count", data.synonym_count),
         ].filter(Boolean).join("");
         const chemistryRows = [
             detailRow("MW", data.mass_summary
@@ -237,8 +239,7 @@
             subtitle: data.kind || data.prefix || "MetaboliteIdentifier",
             html: [
                 `<section class="metabolite-id-detail-section"><h4>Identifier</h4><div class="ramp-id-details">${identifierRows}</div></section>`,
-                renderGenericStructureEvidence(data),
-                renderHarmonizationParticipation(data),
+                renderCurationPanel(data),
                 `<section class="metabolite-id-detail-section"><h4>Chemistry</h4><div class="ramp-id-details">${chemistryRows}</div></section>`,
                 renderStructureData(data),
                 renderChemPropTable(data.chem_props || []),

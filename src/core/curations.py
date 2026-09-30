@@ -17,7 +17,9 @@ PUBLISHED_PREFIX = "curations/v2"
 METABOLITE_EQUIVALENCE_EDGES = "metabolite_equivalence_edges"
 METABOLITE_EXPECTED_CLIQUES = "metabolite_expected_cliques"
 METABOLITE_RECORD_PROPERTIES = "metabolite_record_properties"
+CHEBI_RECORD_PROPERTIES = "chebi_record_properties"
 METABOLITE_RECORD_SUPPRESSIONS = "metabolite_record_suppressions"
+METABOLITE_MW_ADJUDICATIONS = "metabolite_mw_adjudications"
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,7 @@ class CurationTypeDefinition:
     model_types: tuple[str, ...] = ()
     edge_types: tuple[str, ...] = ()
     operation_contract: Optional[str] = None
+    fixed_curation_set: Optional[str] = None
 
 
 _FRAMEWORK_PROPERTY_DENYLIST = frozenset({
@@ -64,6 +67,12 @@ _FRAMEWORK_PROPERTY_DENYLIST = frozenset({
 _MODEL_PROPERTY_DENYLIST = {
     "MetaboliteIdentifier": frozenset({"prefix"}),
 }
+_MODEL_PROPERTY_ALLOWLIST = {
+    "ChemicalEntity": frozenset({
+        "charge", "formula", "inchi", "inchi_key", "mass",
+        "monoisotopic_mass", "smiles", "wurcs",
+    }),
+}
 _SUPPORTED_PROPERTY_TYPES = frozenset({bool, str, int, float})
 
 
@@ -71,6 +80,9 @@ def _curatable_model_class(model_type: str):
     if model_type == "MetaboliteIdentifier":
         from src.models.metabolite_harmonization import MetaboliteIdentifier
         return MetaboliteIdentifier
+    if model_type == "ChemicalEntity":
+        from src.models.chebi import ChemicalEntity
+        return ChemicalEntity
     return None
 
 
@@ -93,6 +105,9 @@ def curatable_property_definitions(model_type: str) -> tuple[CuratablePropertyDe
     definitions = []
     for model_field in fields(model_class):
         if model_field.name.startswith("_") or model_field.name in denied:
+            continue
+        allowlist = _MODEL_PROPERTY_ALLOWLIST.get(model_type)
+        if allowlist is not None and model_field.name not in allowlist:
             continue
         value_type, nullable = _unwrap_optional(type_hints.get(model_field.name, model_field.type))
         if value_type not in _SUPPORTED_PROPERTY_TYPES:
@@ -118,6 +133,13 @@ def curatable_property_definition(
 
 
 CURATION_TYPES = {
+    CHEBI_RECORD_PROPERTIES: CurationTypeDefinition(
+        id=CHEBI_RECORD_PROPERTIES,
+        actions=frozenset({"set_properties"}),
+        model_types=("ChemicalEntity",),
+        operation_contract="record_properties",
+        fixed_curation_set="chebi",
+    ),
     METABOLITE_RECORD_PROPERTIES: CurationTypeDefinition(
         id=METABOLITE_RECORD_PROPERTIES,
         actions=frozenset({"set_properties"}),
@@ -137,6 +159,10 @@ CURATION_TYPES = {
         id=METABOLITE_RECORD_SUPPRESSIONS,
         actions=frozenset({"suppress_record", "restore_record"}),
         model_types=("MetaboliteIdentifier",),
+    ),
+    METABOLITE_MW_ADJUDICATIONS: CurationTypeDefinition(
+        id=METABOLITE_MW_ADJUDICATIONS,
+        actions=frozenset({"accept_mw_discrepancy", "reopen_mw_discrepancy"}),
     ),
 }
 
@@ -158,6 +184,16 @@ def record_property_type_for_model(model_type: str) -> Optional[str]:
             + ", ".join(sorted(matches))
         )
     return matches[0] if matches else None
+
+
+def record_property_curation_set_for_model(
+    model_type: str,
+    default_curation_set: str,
+) -> str:
+    curation_type = record_property_type_for_model(model_type)
+    if not curation_type:
+        return default_curation_set
+    return CURATION_TYPES[curation_type].fixed_curation_set or default_curation_set
 
 
 def validate_curation_type(curation_type: str) -> CurationTypeDefinition:
@@ -200,6 +236,45 @@ def validate_operation(curation_type: str, operation: dict) -> dict:
         note = str(operation.get("note") or "").strip()
         if action == "suppress_record" and not note:
             raise ValueError("Suppressing a record requires a rationale")
+    if action in {"accept_mw_discrepancy", "reopen_mw_discrepancy"}:
+        target = operation.get("target")
+        if not isinstance(target, dict) or target.get("kind") != "validation_finding":
+            raise ValueError("MW adjudications require a validation-finding target")
+        required_target = {
+            "curation_set": "metabolite_harmonization",
+            "check": "mw_spread",
+        }
+        for key, expected in required_target.items():
+            if target.get(key) != expected:
+                raise ValueError(f"MW adjudication target {key} must be {expected!r}")
+        finding_id = str(target.get("finding_id") or "").strip()
+        anchor_id = str(target.get("anchor_id") or "").strip()
+        if not re.fullmatch(r"mw-[0-9a-f]{24}", finding_id):
+            raise ValueError("MW adjudication requires a valid finding id")
+        if not anchor_id or ":" not in anchor_id:
+            raise ValueError("MW adjudication requires a stable anchor identifier")
+        fingerprint = str(operation.get("observed_evidence_fingerprint") or "").strip()
+        if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+            raise ValueError("MW adjudication requires the reviewed evidence fingerprint")
+        member_ids = operation.get("observed_member_ids")
+        if not isinstance(member_ids, list) or anchor_id not in member_ids:
+            raise ValueError("MW adjudication requires the complete reviewed member list")
+        if len(member_ids) != len(set(member_ids)) or any(
+            not isinstance(identifier, str) or ":" not in identifier
+            for identifier in member_ids
+        ):
+            raise ValueError("MW adjudication member identifiers must be unique prefixed strings")
+        note = str(operation.get("note") or "").strip()
+        if not note:
+            raise ValueError("MW adjudication requires an explanatory note")
+        if action == "accept_mw_discrepancy":
+            if not str(operation.get("reason") or "").strip():
+                raise ValueError("Accepting an MW discrepancy requires a reason")
+            supporting_ids = operation.get("supporting_ids") or []
+            if not isinstance(supporting_ids, list) or any(
+                identifier not in member_ids for identifier in supporting_ids
+            ):
+                raise ValueError("Supporting identifiers must belong to the reviewed finding")
     return operation
 
 
@@ -221,6 +296,17 @@ def _validate_record_property_operation(
         raise ValueError(
             f"Model type {target['model_type']!r} is not registered for {definition.id}"
         )
+    if (
+        definition.fixed_curation_set is not None
+        and target["curation_set"] != definition.fixed_curation_set
+    ):
+        raise ValueError(
+            f"{definition.id} curation set must be {definition.fixed_curation_set!r}"
+        )
+    if definition.id == CHEBI_RECORD_PROPERTIES and not re.fullmatch(
+        r"CHEBI:[0-9]+", str(target.get("id") or "")
+    ):
+        raise ValueError("ChEBI record-property curations require a CHEBI identifier")
     note = str(operation.get("note") or "").strip()
     if not note:
         raise ValueError("Record property curation requires a rationale")
@@ -233,6 +319,11 @@ def _validate_record_property_operation(
             raise ValueError("Record property decisions must be objects")
         path = decision.get("path")
         _validate_record_property_path(path)
+        allowlist = _MODEL_PROPERTY_ALLOWLIST.get(target["model_type"])
+        if allowlist is not None and path[0] not in allowlist:
+            raise ValueError(
+                f"Field {path[0]!r} is not curatable for {target['model_type']}"
+            )
         canonical_path = canonical_json(path)
         if canonical_path in canonical_paths:
             raise ValueError("Record property decisions must not repeat a field path")
@@ -319,6 +410,14 @@ def operation_subject(curation_type: str, operation: dict) -> tuple[str, ...]:
     if action in {"suppress_record", "restore_record"}:
         target = operation["target"]
         return ("record_harmonization", target["model_type"], target["id"])
+    if action in {"accept_mw_discrepancy", "reopen_mw_discrepancy"}:
+        target = operation["target"]
+        return (
+            "validation_finding",
+            target["curation_set"],
+            target["check"],
+            target["anchor_id"],
+        )
     assertion_id = str(operation.get("assertion_id") or "").strip()
     if not assertion_id:
         raise ValueError("Assertion curation requires assertion_id")

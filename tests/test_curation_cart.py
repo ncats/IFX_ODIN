@@ -6,6 +6,8 @@ from src.core.curations import (
     METABOLITE_RECORD_PROPERTIES,
     METABOLITE_EQUIVALENCE_EDGES,
     METABOLITE_EXPECTED_CLIQUES,
+    METABOLITE_MW_ADJUDICATIONS,
+    validate_operation,
 )
 from src.qa_browser.curation_cart import (
     add_cart_operation,
@@ -136,6 +138,40 @@ def record_property_changes(path, value, observed="old"):
         }],
         "note": "Correct source chemistry",
     }
+
+
+def mw_adjudication(action="accept_mw_discrepancy", fingerprint="a" * 64):
+    operation = {
+        "action": action,
+        "target": {
+            "kind": "validation_finding",
+            "curation_set": "metabolite_harmonization",
+            "check": "mw_spread",
+            "finding_id": "mw-1234567890abcdef12345678",
+            "anchor_id": "CHEBI:1",
+        },
+        "observed_evidence_fingerprint": fingerprint,
+        "observed_member_ids": ["CHEBI:1", "HMDB:1"],
+        "note": "Reviewed expected chemistry.",
+    }
+    if action == "accept_mw_discrepancy":
+        operation.update({
+            "reason": "protonation_or_charge_state",
+            "supporting_ids": ["CHEBI:1"],
+        })
+    return operation
+
+
+def test_mw_adjudication_contract_supports_acceptance_and_reopening():
+    accepted = validate_operation(
+        METABOLITE_MW_ADJUDICATIONS, mw_adjudication()
+    )
+    reopened = validate_operation(
+        METABOLITE_MW_ADJUDICATIONS, mw_adjudication("reopen_mw_discrepancy")
+    )
+
+    assert accepted["reason"] == "protonation_or_charge_state"
+    assert reopened["action"] == "reopen_mw_discrepancy"
 
 
 def test_cart_autosaves_and_reloads_one_draft_per_curator_and_type():

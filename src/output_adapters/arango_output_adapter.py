@@ -13,6 +13,7 @@ from src.core.decorators import collect_facets, collect_indexed_fields, collect_
 from src.core.curations import (
     METABOLITE_EQUIVALENCE_EDGES,
     is_record_property_type,
+    validate_curation_type,
 )
 from src.core.record_property_curations import (
     apply_record_property_decision,
@@ -25,6 +26,7 @@ from src.interfaces.resolver_metadata import resolver_fingerprint_summary
 from src.models.datasource_version_info import DataSourceDetails
 from src.shared.arango_adapter import ArangoAdapter
 from src.shared.record_merger import RecordMerger, FieldConflictBehavior
+from src.shared.metabolite_structure_chemistry import calculate_smiles_chemistry
 
 from src.shared.db_credentials import DBCredentials
 from src.infrastructure.object_storage import (
@@ -88,9 +90,13 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                     f"Arango graph builds do not support applying {curation_type!r}"
                 )
             if is_record_property_type(curation_type):
+                definition = validate_curation_type(curation_type)
                 for decision in snapshot.active_record_property_decisions:
                     target = decision.target
-                    if target.get("curation_set") != self.database_name:
+                    if (
+                        definition.fixed_curation_set is None
+                        and target.get("curation_set") != self.database_name
+                    ):
                         continue
                     target_key = (target["model_type"], target["id"])
                     record_decisions_by_target.setdefault(target_key, []).append(decision)
@@ -167,6 +173,22 @@ class ArangoOutputAdapter(OutputAdapter, ArangoAdapter):
                 projected, report = apply_record_property_decision(projected, decision)
                 report["phase"] = phase
                 target_reports.append(report)
+            if collection_name == "ChemicalEntity":
+                recalculated = calculate_smiles_chemistry(
+                    projected.get("smiles"), "smiles"
+                )
+                for field_name in (
+                    "calculated_mw",
+                    "calculated_monoisotopic_mass",
+                    "structure_calculation_input_field",
+                    "structure_calculation_method",
+                    "structure_calculation_method_version",
+                    "structure_calculation_error",
+                ):
+                    projected[field_name] = recalculated.get(field_name)
+                projected["structure_components"] = recalculated.get(
+                    "structure_components", []
+                )
             patch = {
                 key: value
                 for key, value in projected.items()

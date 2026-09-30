@@ -102,6 +102,11 @@
                         <strong>Retire expected-clique assertion</strong>
                         <span><code>${escapeHtml(operation.assertion_id)}</code></span>
                         ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
+                    ` : ["accept_mw_discrepancy", "reopen_mw_discrepancy"].includes(operation.action) ? `
+                        <strong>${operation.action === "accept_mw_discrepancy" ? "Accept MW discrepancy" : "Reopen MW discrepancy"}</strong>
+                        <span><code>${escapeHtml(operation.target?.finding_id || "")}</code></span>
+                        ${operation.reason ? `<small>${escapeHtml(operation.reason.replaceAll("_", " "))}</small>` : ""}
+                        ${operation.note ? `<small>${escapeHtml(operation.note)}</small>` : ""}
                     ` : `
                         <strong>${operation.action === "retain_edge" ? "Retain equivalence edge" : "Remove equivalence edge"}</strong>
                         <span><code>${escapeHtml(operation.start_id)}</code> ↔ <code>${escapeHtml(operation.end_id)}</code></span>
@@ -335,6 +340,50 @@
         }
     }
 
+    async function addMwAdjudication(form) {
+        openCart();
+        if (!curatorInput.value.trim()) {
+            status.textContent = "Enter your curator name or email before reviewing this finding.";
+            curatorInput.focus();
+            return;
+        }
+        const action = form.dataset.action;
+        const note = form.querySelector("[data-mw-adjudication-note]")?.value.trim() || "";
+        const reason = form.querySelector("[data-mw-adjudication-reason]")?.value || "";
+        if (action === "accept_mw_discrepancy" && !reason) {
+            status.textContent = "Choose why this MW discrepancy is acceptable.";
+            return;
+        }
+        if (!note) {
+            status.textContent = "Enter an explanatory note for this MW review.";
+            form.querySelector("[data-mw-adjudication-note]")?.focus();
+            return;
+        }
+        const button = form.querySelector('button[type="submit"]');
+        status.textContent = "Saving MW validation decision to your cart…";
+        if (button) button.disabled = true;
+        try {
+            acceptCart(await api("/ramp-id-qa/api/curation-cart/items", {
+                method: "POST",
+                body: JSON.stringify({
+                    ...identityPayload(),
+                    action,
+                    stage_key: form.dataset.stageKey,
+                    finding_id: form.dataset.findingId,
+                    reason,
+                    supporting_ids: form.querySelector("[data-mw-adjudication-supporting-ids]")?.value || "",
+                    note,
+                    replace_target: true,
+                }),
+            }));
+            status.textContent = "MW validation decision added and autosaved. It becomes active after publication.";
+        } catch (error) {
+            status.textContent = error.message;
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
     const savedIdentity = localStorage.getItem(identityStorageKey)
         || localStorage.getItem(legacyIdentityStorageKey) || "";
     curatorInput.value = savedIdentity;
@@ -390,6 +439,12 @@
     });
 
     document.addEventListener("submit", (event) => {
+        const mwForm = event.target.closest("[data-mw-adjudication-form]");
+        if (mwForm) {
+            event.preventDefault();
+            addMwAdjudication(mwForm);
+            return;
+        }
         const participationForm = event.target.closest("[data-metabolite-record-participation-form]");
         if (participationForm) {
             event.preventDefault();
@@ -411,7 +466,9 @@
         const form = event.target.closest("[data-generic-classification-form]");
         if (!form) return;
         event.preventDefault();
-        const choice = form.querySelector("[data-generic-classification-value]")?.value || "";
+        const choice = event.submitter?.dataset.genericClassificationChoice
+            || form.querySelector("[data-generic-classification-value]:checked")?.value
+            || "";
         const note = form.querySelector("[data-generic-classification-note]")?.value.trim() || "";
         if (!choice) {
             status.textContent = "Choose a generic-structure classification.";
@@ -474,9 +531,14 @@
                 "remove_edge", "retain_edge", "set_properties",
                 "suppress_record", "restore_record",
             ].includes(operation.action));
+            const hasMwAdjudications = publishedOperations.some((operation) => [
+                "accept_mw_discrepancy", "reopen_mw_discrepancy",
+            ].includes(operation.action));
             status.textContent = hasGraphChanges
                 ? `Published ${result.operation_count} item${result.operation_count === 1 ? "" : "s"} in ${result.batch_count} typed batch${result.batch_count === 1 ? "" : "es"}. Sync affected pipelines to apply them.`
-                : `Published ${result.operation_count} assertion item${result.operation_count === 1 ? "" : "s"}. Validation views now use the new assertion set.`;
+                : hasMwAdjudications
+                    ? `Published ${result.operation_count} validation decision${result.operation_count === 1 ? "" : "s"}. MW validation views now use the new review status.`
+                    : `Published ${result.operation_count} assertion item${result.operation_count === 1 ? "" : "s"}. Validation views now use the new assertion set.`;
             sessionStorage.setItem(noticeStorageKey, status.textContent);
             document.dispatchEvent(new CustomEvent("metabolite-curations:published", {detail: result}));
             setTimeout(() => window.location.reload(), 900);

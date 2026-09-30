@@ -2340,6 +2340,23 @@ details summary:hover { color: var(--accent); }
     color: inherit;
 }
 
+.metabolite-mw-count-error {
+    color: #b91c1c;
+}
+
+.metabolite-mw-count-warning {
+    color: #a16207;
+}
+
+.metabolite-mw-count-accepted {
+    color: #15803d;
+}
+
+.metabolite-mw-count.is-zero,
+.metabolite-mw-count-separator {
+    color: #94a3b8;
+}
+
 .metabolite-id-stage-stats-grid-cell.has-validation-failures a {
     color: #b91c1c;
     font-weight: 800;
@@ -2891,36 +2908,152 @@ tr.has-pending-changes > td:first-child {
     box-shadow: inset 3px 0 #d97706;
 }
 
-.metabolite-id-mw-review-row[hidden],
-.metabolite-id-mw-review-row [data-mw-review-layout][hidden],
-.metabolite-id-mw-review-row [data-mw-review-loading][hidden] {
-    display: none;
-}
-
-.metabolite-id-mw-review-row > td {
-    background: var(--bg-card);
-    padding: 1rem;
-}
-
-.metabolite-id-mw-review-graph {
-    min-height: 34rem;
-}
-
-.metabolite-id-mw-review-loading {
-    color: var(--text-muted);
-    padding: 1.5rem;
-    text-align: center;
-}
-
-.metabolite-id-mw-review-toggle {
-    margin-right: 0.45rem;
-}
-
 .metabolite-curation-publish-form {
     border-top: 1px solid var(--border);
     display: grid;
     gap: 0.65rem;
     padding-top: 0.75rem;
+}
+
+.metabolite-mw-adjudication-form,
+.metabolite-mw-adjudication-history {
+    display: grid;
+    gap: 0.6rem;
+}
+
+.metabolite-mw-adjudication-form label {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.metabolite-mw-adjudication-form input,
+.metabolite-mw-adjudication-form select,
+.metabolite-mw-adjudication-form textarea {
+    width: 100%;
+}
+
+.metabolite-mw-adjudication-form .btn {
+    justify-self: start;
+}
+
+.metabolite-mw-finding-summary {
+    color: var(--text-muted);
+    margin-bottom: 0.85rem;
+}
+
+.metabolite-mw-review-layout {
+    align-items: start;
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 21rem);
+}
+
+.metabolite-mw-mass-panel,
+.metabolite-mw-adjudication-card {
+    min-width: 0;
+}
+
+.metabolite-mw-mass-panel .table-wrap {
+    overflow-x: auto;
+}
+
+.metabolite-mw-mass-panel h3,
+.metabolite-mw-adjudication-card h3 {
+    font-size: 1rem;
+    margin: 0 0 0.65rem;
+}
+
+.metabolite-mw-adjudication-card {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.85rem;
+}
+
+.metabolite-mw-adjudication-card p {
+    margin: 0;
+}
+
+.metabolite-mw-cluster-list {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.metabolite-mw-cluster-row {
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: minmax(8.5rem, 0.25fr) minmax(0, 1fr);
+    padding: 0.7rem 0.8rem;
+}
+
+.metabolite-mw-cluster-row + .metabolite-mw-cluster-row {
+    border-top: 1px solid var(--border);
+}
+
+.metabolite-mw-cluster-heading {
+    display: grid;
+    gap: 0.12rem;
+}
+
+.metabolite-mw-cluster-heading small,
+.metabolite-mw-cluster-fallback {
+    color: var(--text-muted);
+}
+
+.metabolite-mw-cluster-chips {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.metabolite-mw-cluster-chip {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.82rem;
+    padding: 0.3rem 0.55rem;
+    white-space: nowrap;
+}
+
+.metabolite-mw-value-table td {
+    vertical-align: top;
+}
+
+.metabolite-mw-value {
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.metabolite-mw-value-identifiers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.metabolite-mw-value-identifiers code {
+    white-space: nowrap;
+}
+
+.metabolite-mw-evidence-details,
+.metabolite-mw-reopen-control {
+    margin-top: 0.75rem;
+}
+
+.metabolite-mw-evidence-details > summary,
+.metabolite-mw-reopen-control > summary {
+    cursor: pointer;
+    font-weight: 700;
+}
+
+.metabolite-mw-evidence-details[open] > summary,
+.metabolite-mw-reopen-control[open] > summary {
+    margin-bottom: 0.75rem;
+}
+
+.metabolite-id-mw-compact-examples span {
+    white-space: nowrap;
 }
 
 .metabolite-assertion-status {
@@ -4179,22 +4312,6 @@ tr.has-pending-changes > td:first-child {
     margin-top: 1.25rem;
 }
 
-.metabolite-id-snapshot-rules {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-}
-
-.metabolite-id-snapshot-rules span {
-    background: rgba(241, 245, 249, 0.92);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    color: var(--text-muted);
-    font-size: 0.82rem;
-    font-weight: 700;
-    padding: 0.25rem 0.45rem;
-}
-
 .metabolite-id-sankey {
     background: #f8fafc;
     border: 1px solid var(--border);
@@ -4362,6 +4479,97 @@ tr.has-pending-changes > td:first-child {
     letter-spacing: 0.04em;
     margin: 0;
     text-transform: uppercase;
+}
+
+.metabolite-node-curation {
+    gap: 0.75rem;
+}
+
+.metabolite-record-links {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.metabolite-curation-subsection {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: grid;
+    gap: 0.5rem;
+    padding: 0.65rem;
+}
+
+.metabolite-curation-subsection h5 {
+    font-size: 0.82rem;
+    margin: 0;
+}
+
+.metabolite-curation-subsection p {
+    margin: 0;
+}
+
+.metabolite-curation-subsection form {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.metabolite-curation-subsection form > label {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.metabolite-generic-choice {
+    border: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin: 0;
+    padding: 0;
+}
+
+.metabolite-generic-choice legend {
+    font-size: 0.78rem;
+    font-weight: 700;
+    margin-bottom: 0.3rem;
+    width: 100%;
+}
+
+.metabolite-generic-choice label {
+    cursor: pointer;
+    position: relative;
+}
+
+.metabolite-generic-choice input {
+    opacity: 0;
+    position: absolute;
+}
+
+.metabolite-generic-choice span {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    display: block;
+    font-size: 0.76rem;
+    font-weight: 700;
+    padding: 0.3rem 0.55rem;
+}
+
+.metabolite-generic-choice input:checked + span {
+    background: #dbeafe;
+    border-color: #2563eb;
+    color: #1d4ed8;
+}
+
+.metabolite-generic-choice input:focus-visible + span {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+}
+
+.metabolite-curation-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
 }
 
 .metabolite-id-detail-table-wrap {
@@ -5179,6 +5387,23 @@ tr.has-pending-changes > td:first-child {
 
     .metabolite-id-grid {
         grid-template-columns: 1fr;
+    }
+
+    .metabolite-mw-review-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .metabolite-mw-finding-review .ramp-id-section-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .metabolite-mw-cluster-row {
+        grid-template-columns: 1fr;
+    }
+
+    .metabolite-mw-value-table {
+        min-width: 40rem;
     }
 
     .metabolite-id-component-layout {

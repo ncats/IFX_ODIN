@@ -1,4 +1,8 @@
-from src.shared.metabolite_mass_validation import assess_mass_profiles
+from src.shared.metabolite_mass_validation import (
+    assess_mass_profiles,
+    cluster_mass_observations,
+    mass_validation_finding_metadata,
+)
 
 
 def _profile(*, average=(), monoisotopic=(), components=()):
@@ -9,6 +13,22 @@ def _profile(*, average=(), monoisotopic=(), components=()):
         },
         "components": list(components),
     }
+
+
+def test_mass_observation_clustering_uses_validator_tolerances():
+    observations = [
+        {"member_id": "A", "value": 100.0},
+        {"member_id": "B", "value": 100.05},
+        {"member_id": "C", "value": 150.0},
+    ]
+
+    clusters = cluster_mass_observations(observations)
+
+    assert [[item["member_id"] for item in cluster] for cluster in clusters] == [
+        ["A", "B"],
+        ["C"],
+    ]
+    assert [item["cluster_index"] for item in observations] == [0, 0, 1]
 
 
 def test_mass_validation_ignores_small_within_channel_differences():
@@ -37,6 +57,58 @@ def test_mass_validation_marks_unexplained_difference_as_error():
     assert assessment["severity"] == "error"
     assert assessment["reason"] == "unexplained_mass_difference"
     assert assessment["component_matches"] == []
+
+
+def test_mw_finding_fingerprint_is_order_independent_but_membership_sensitive():
+    profiles = {
+        "CHEBI:1": _profile(average=[100.0]),
+        "HMDB:1": _profile(average=[150.0]),
+    }
+    assessment = assess_mass_profiles(
+        ["CHEBI:1", "HMDB:1"], profiles, spread_threshold=0.10
+    )
+    first = mass_validation_finding_metadata(
+        ["CHEBI:1", "HMDB:1"], profiles, assessment, spread_threshold=0.10
+    )
+    reordered = mass_validation_finding_metadata(
+        ["HMDB:1", "CHEBI:1"], profiles, assessment, spread_threshold=0.10
+    )
+    with_massless_member = mass_validation_finding_metadata(
+        ["HMDB:1", "CHEBI:1", "CAS:1"], profiles, assessment, spread_threshold=0.10
+    )
+
+    assert first == reordered
+    assert first["anchor_id"] == "CHEBI:1"
+    assert with_massless_member["finding_id"] != first["finding_id"]
+    assert with_massless_member["evidence_fingerprint"] != first["evidence_fingerprint"]
+
+
+def test_mw_finding_fingerprint_ignores_observation_display_routing_metadata():
+    profiles = {
+        "CHEBI:1": {
+            **_profile(average=[100.0]),
+            "whole_observations": [{
+                "source": "ChEBI",
+                "source_id": "CHEBI:1",
+                "channel": "average",
+                "value": 100.0,
+                "molecular_formula": "C1",
+            }],
+        },
+        "HMDB:1": _profile(average=[150.0]),
+    }
+    assessment = assess_mass_profiles(
+        ["CHEBI:1", "HMDB:1"], profiles, spread_threshold=0.10
+    )
+    before = mass_validation_finding_metadata(
+        ["CHEBI:1", "HMDB:1"], profiles, assessment, spread_threshold=0.10
+    )
+    profiles["CHEBI:1"]["whole_observations"][0]["model_type"] = "ChemicalEntity"
+    after = mass_validation_finding_metadata(
+        ["CHEBI:1", "HMDB:1"], profiles, assessment, spread_threshold=0.10
+    )
+
+    assert after == before
 
 
 def test_mass_validation_downgrades_salt_difference_to_warning():

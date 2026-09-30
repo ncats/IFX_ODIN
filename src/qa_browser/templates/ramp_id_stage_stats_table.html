@@ -55,20 +55,22 @@
                     <div>{{ "{:,}".format(stage_summary.ignored_edge_count) }} ignored</div>
                     {% endif %}
                 </div>
-                <div class="metabolite-id-stage-stats-grid-cell {% if stage_summary.generic_structure_rule_enabled and stage_summary.generic_structure_failure_count %}has-validation-failures{% elif stage_summary.generic_structure_validation_computed and stage_summary.generic_structure_gap_count %}has-validation-gaps{% endif %}">
+                <div class="metabolite-id-stage-stats-grid-cell {% if stage_summary.generic_structure_rule_enabled and stage_summary.generic_structure_failure_count %}has-validation-failures{% endif %}">
                     <a href="{{ root_path }}/ramp-id-qa/stages/{{ stage._key }}#genericStructureValidation" target="_blank" rel="noopener noreferrer">
                     {% if not stage_summary.generic_structure_validation_computed %}
                     <span title="This stage was materialized before generic-structure validation was stored.">Not computed</span>
                     {% elif stage_summary.generic_structure_rule_enabled %}
-                    {{ "{:,}".format(stage_summary.generic_structure_failure_count|default(0, true)) }} fail<br>{{ "{:,}".format(stage_summary.generic_structure_gap_count|default(0, true)) }} gaps
+                    {{ "{:,}".format(stage_summary.generic_structure_failure_count|default(0, true)) }} fail
                     {% else %}
-                    {{ "{:,}".format(stage_summary.generic_structure_failure_count|default(0, true)) }} mixed<br>{{ "{:,}".format(stage_summary.generic_structure_gap_count|default(0, true)) }} gaps
+                    {{ "{:,}".format(stage_summary.generic_structure_failure_count|default(0, true)) }} mixed
                     {% endif %}
                     </a>
                 </div>
                 <div class="metabolite-id-stage-stats-grid-cell">
                     {% if stage_summary.mw_validation_computed %}
-                    {{ "{:,}".format(stage_summary.mw_warning_count|default(0, true)) }}
+                    <span class="metabolite-mw-count metabolite-mw-count-error{% if not stage_summary.mw_error_count|default(0) %} is-zero{% endif %}">{{ "{:,}".format(stage_summary.mw_error_count|default(0)) }} err</span><br>
+                    <span class="metabolite-mw-count metabolite-mw-count-warning{% if not stage_summary.mw_review_warning_count|default(0) %} is-zero{% endif %}">{{ "{:,}".format(stage_summary.mw_review_warning_count|default(0)) }} warn</span>
+                    {% if stage_summary.mw_accepted_count|default(0) %}<br><span class="metabolite-mw-count metabolite-mw-count-accepted">{{ "{:,}".format(stage_summary.mw_accepted_count) }} accepted</span>{% endif %}
                     {% else %}
                     <span title="This stage was materialized before MW validation was stored.">Not computed</span>
                     {% endif %}
