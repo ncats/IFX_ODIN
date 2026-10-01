@@ -987,8 +987,7 @@ def test_chebi_record_overlay_recalculates_and_replaces_mass_evidence(monkeypatc
         }},
     )
     monkeypatch.setattr(
-        qa_app,
-        "calculate_smiles_chemistry",
+        "src.core.record_property_curations.calculate_smiles_chemistry",
         lambda smiles, input_field: {
             "calculated_mw": "284.31",
             "calculated_monoisotopic_mass": "284.265337",
@@ -1294,6 +1293,85 @@ def test_record_property_curations_project_stage_values_without_writing_graph(mo
         == state["record_property_fingerprint"]
     )
     assert state_with_unrelated["record_property_batch_ids"] == ["generic-kegg"]
+
+
+def test_metabolite_structure_curation_recalculates_stage_overlay(monkeypatch):
+    selector = {"source": "ChEBI", "source_id": "CHEBI:139244"}
+    operation = {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": "metabolite_harmonization",
+            "model_type": "MetaboliteIdentifier",
+            "id": "CHEBI:139244",
+        },
+        "decisions": [{
+            "path": ["chem_props", {"match": selector}, "iso_smiles"],
+            "mode": "set",
+            "value": "[2H]O[2H]",
+            "observed_value": "CC",
+            "observed_exists": True,
+        }],
+        "note": "Restore deuterium atoms.",
+    }
+    batch = {
+        "format_version": 2,
+        "curation_batch_id": "chebi-sdf-deuterium-fix",
+        "curation_type": METABOLITE_RECORD_PROPERTIES,
+        "published_at": "2026-10-01T12:00:00Z",
+        "operations": [operation],
+    }
+    state = qa_app._load_metabolite_curations(_FakeCurationStorage(
+        _typed_curation_objects(METABOLITE_RECORD_PROPERTIES, [batch])
+    ))
+    source_document = {
+        "id": "CHEBI:139244",
+        "chem_props": [{
+            **selector,
+            "iso_smiles": "CC",
+            "calculated_mw": "30.07",
+            "calculated_monoisotopic_mass": "30.046950192",
+            "derived_inchi_key": "OTMSDBZUPAUEDD-UHFFFAOYSA-N",
+            "structure_components": [{"smiles": "CC", "mw": "30.07"}],
+        }],
+    }
+
+    class OverlayAql:
+        def execute(self, _query, bind_vars=None, **_kwargs):
+            assert bind_vars == {
+                "@collection": "MetaboliteIdentifier",
+                "target_ids": ["CHEBI:139244"],
+            }
+            return [source_document]
+
+    class OverlayDb:
+        aql = OverlayAql()
+
+    monkeypatch.setattr(
+        qa_app,
+        "_get_collection_schema_entry",
+        lambda _db, _name: {"fields": {"chem_props": {
+            "type": "list",
+            "item_type": "object",
+            "fields": {
+                "source": "str",
+                "source_id": "str",
+                "iso_smiles": "str",
+            },
+        }}},
+    )
+
+    overlays, reports = qa_app._load_metabolite_identifier_record_overlays(
+        OverlayDb(), state["record_property_snapshot"]
+    )
+
+    properties = overlays["CHEBI:139244"]["chem_props"][0]
+    assert len(reports) == 1
+    assert properties["iso_smiles"] == "[2H]O[2H]"
+    assert properties["calculated_mw"] == "20.027203556"
+    assert properties["derived_inchi_key"] == "XLYOFNOQVPJJNP-ZSJDYOACSA-N"
+    assert properties["structure_components"][0]["molecular_formula"] == "D2O"
+    assert source_document["chem_props"][0]["calculated_mw"] == "30.07"
 
 
 def test_assertion_only_batch_does_not_change_edge_curation_fingerprint():

@@ -6,6 +6,7 @@ from src.core.curations import METABOLITE_RECORD_PROPERTIES
 from src.core.record_property_curations import (
     CURATION_ORIGINAL_FIELD,
     apply_record_property_decision,
+    recalculate_curated_structure_derivatives,
     resolve_parent_and_field,
     schema_for_path,
     validate_value_for_schema,
@@ -56,6 +57,65 @@ def test_nested_selector_preserves_original_at_the_same_object_level():
     corrected = projected["chem_props"][0]
     assert corrected["mw"] == 102.0
     assert corrected[CURATION_ORIGINAL_FIELD] == {"mw": 100.0}
+
+
+def test_structure_recalculation_touches_only_selected_chem_props_once(monkeypatch):
+    selected_path = [
+        "chem_props",
+        {"match": {"source": "ChEBI", "source_id": "CHEBI:1"}},
+        "iso_smiles",
+    ]
+    document = {
+        "chem_props": [
+            {"source": "ChEBI", "source_id": "CHEBI:1", "iso_smiles": "[2H]O[2H]"},
+            {"source": "HMDB", "source_id": "HMDB1", "iso_smiles": "C", "calculated_mw": "16"},
+        ],
+    }
+    calls = []
+    monkeypatch.setattr(
+        "src.core.record_property_curations.calculate_metabolite_chem_props_derivatives",
+        lambda properties: calls.append(properties["source_id"]) or {"calculated_mw": "20"},
+    )
+
+    projected = recalculate_curated_structure_derivatives(
+        document,
+        model_type="MetaboliteIdentifier",
+        decisions=[
+            decision(selected_path, "[2H]O[2H]", "CC"),
+            decision(selected_path, "[2H]O[2H]", "CC"),
+        ],
+    )
+
+    assert calls == ["CHEBI:1"]
+    assert projected["chem_props"][0]["calculated_mw"] == "20"
+    assert projected["chem_props"][1]["calculated_mw"] == "16"
+
+
+def test_non_structure_curation_does_not_recalculate_chem_props(monkeypatch):
+    document = {
+        "chem_props": [{
+            "source": "ChEBI",
+            "source_id": "CHEBI:1",
+            "mw": "10",
+            "calculated_mw": "11",
+        }],
+    }
+    monkeypatch.setattr(
+        "src.core.record_property_curations.calculate_metabolite_chem_props_derivatives",
+        lambda _properties: pytest.fail("non-structure curation triggered recalculation"),
+    )
+
+    projected = recalculate_curated_structure_derivatives(
+        document,
+        model_type="MetaboliteIdentifier",
+        decisions=[decision([
+            "chem_props",
+            {"match": {"source": "ChEBI", "source_id": "CHEBI:1"}},
+            "mw",
+        ], "12", "10")],
+    )
+
+    assert projected["chem_props"][0]["calculated_mw"] == "11"
 
 
 def test_selector_must_match_exactly_one_object():

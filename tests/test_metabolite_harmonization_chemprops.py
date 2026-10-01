@@ -15,6 +15,7 @@ from src.models.metabolite_harmonization import MetaboliteIdentifier
 from src.shared.metabolite_generic_structure import classify_generic_structure
 from src.shared.metabolite_structure_chemistry import (
     STRUCTURE_CALCULATION_METHOD,
+    calculate_metabolite_chem_props_derivatives,
     calculate_smiles_chemistry,
 )
 from src.shared.record_merger import FieldConflictBehavior
@@ -472,6 +473,56 @@ def test_structure_chemistry_preserves_repeated_isotope_aware_components():
         if component["formal_charge"] == -1
     )
     assert chloride["molecular_formula"] == "Cl-"
+
+
+def test_metabolite_chem_props_derivatives_replace_all_structure_managed_fields():
+    corrected_smiles = (
+        "[2H]C([2H])([2H])C(O)(CCC[C@H](CC#CC(O)(C(F)(F)F)C(F)(F)F)"
+        "[C@H]1CC[C@H]2/C(=C/C=C3/C[C@@H](O)C[C@H](O)C3=C)CCC[C@]12C)"
+        "C([2H])([2H])[2H]"
+    )
+
+    derived = calculate_metabolite_chem_props_derivatives({
+        "iso_smiles": corrected_smiles,
+        "isomeric_smiles": "CC",
+        "canonical_smiles": "C",
+    })
+
+    assert derived["structure_calculation_input_field"] == "iso_smiles"
+    assert derived["derived_inchi_key_input_field"] == "iso_smiles"
+    assert derived["calculated_mw"] == "612.724610668"
+    assert derived["calculated_monoisotopic_mass"] == "612.352039684"
+    assert derived["derived_inchi_key"] == "VSOWXEHVBCDXAY-CVRMBSQLSA-N"
+    assert derived["structure_components"][0]["molecular_formula"] == "C32H38D6F6O4"
+    assert derived["structure_calculation_error"] is None
+    assert derived["derived_inchi_key_error"] is None
+
+
+def test_metabolite_chem_props_derivatives_clear_stale_values_without_structure():
+    derived = calculate_metabolite_chem_props_derivatives({
+        "iso_smiles": None,
+        "isomeric_smiles": "",
+        "canonical_smiles": None,
+    })
+
+    assert derived["calculated_mw"] is None
+    assert derived["calculated_monoisotopic_mass"] is None
+    assert derived["derived_inchi_key"] is None
+    assert derived["structure_components"] == []
+    assert derived["structure_calculation_error"] is None
+
+
+def test_metabolite_chem_props_derivatives_clear_stale_values_for_invalid_structure():
+    derived = calculate_metabolite_chem_props_derivatives({
+        "iso_smiles": "not-a-smiles",
+    })
+
+    assert derived["calculated_mw"] is None
+    assert derived["calculated_monoisotopic_mass"] is None
+    assert derived["derived_inchi_key"] is None
+    assert derived["structure_components"] == []
+    assert derived["structure_calculation_error"] == "smiles_parse_failed"
+    assert derived["derived_inchi_key_error"] == "smiles_parse_failed"
 
 
 def test_chemprops_adapters_honor_max_records(tmp_path: Path):

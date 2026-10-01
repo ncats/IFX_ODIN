@@ -6,6 +6,11 @@ import copy
 import json
 from typing import Any
 
+from src.shared.metabolite_structure_chemistry import (
+    calculate_metabolite_chem_props_derivatives,
+    calculate_smiles_chemistry,
+)
+
 
 CURATION_ORIGINAL_FIELD = "_curation_original"
 MISSING_ORIGINAL_MARKER = {"_odin_field_was_missing": True}
@@ -17,6 +22,9 @@ PROTECTED_FIELD_NAMES = frozenset({
     CURATION_ORIGINAL_FIELD,
     "source", "source_id", "chem_data_source", "chem_source_id",
     "prefix", "structure_components",
+})
+METABOLITE_STRUCTURE_INPUT_FIELDS = frozenset({
+    "iso_smiles", "isomeric_smiles", "canonical_smiles",
 })
 
 
@@ -235,6 +243,57 @@ def apply_record_property_decision(
     projected["sources"] = sources
     report["status"] = "applied"
     return projected, report
+
+
+def recalculate_curated_structure_derivatives(
+    document: dict,
+    *,
+    model_type: str,
+    decisions: list,
+) -> dict:
+    """Refresh protected structure derivatives after explicit source-field edits."""
+    if model_type == "ChemicalEntity":
+        recalculated = calculate_smiles_chemistry(
+            document.get("smiles"), "smiles"
+        )
+        for field_name in (
+            "calculated_mw",
+            "calculated_monoisotopic_mass",
+            "structure_calculation_input_field",
+            "structure_calculation_method",
+            "structure_calculation_method_version",
+            "structure_calculation_error",
+        ):
+            document[field_name] = recalculated.get(field_name)
+        document["structure_components"] = recalculated.get(
+            "structure_components", []
+        )
+        return document
+
+    if model_type != "MetaboliteIdentifier":
+        return document
+
+    touched_properties: dict[int, dict] = {}
+    for decision in decisions:
+        path = (
+            decision.get("path")
+            if isinstance(decision, dict)
+            else getattr(decision, "path", None)
+        )
+        if not (
+            isinstance(path, list)
+            and len(path) == 3
+            and path[0] == "chem_props"
+            and isinstance(path[1], dict)
+            and path[2] in METABOLITE_STRUCTURE_INPUT_FIELDS
+        ):
+            continue
+        properties, _field_name = resolve_parent_and_field(document, path)
+        touched_properties[id(properties)] = properties
+
+    for properties in touched_properties.values():
+        properties.update(calculate_metabolite_chem_props_derivatives(properties))
+    return document
 
 
 def format_curation_update(decision, previous: Any, current: Any) -> str:

@@ -619,7 +619,7 @@ def test_apply_chebi_record_curation_is_portable_and_recalculates_structure(monk
     }
     adapter.get_db = lambda: db
     monkeypatch.setattr(
-        "src.output_adapters.arango_output_adapter.calculate_smiles_chemistry",
+        "src.core.record_property_curations.calculate_smiles_chemistry",
         lambda smiles, input_field: {
             "calculated_mw": "284.31",
             "calculated_monoisotopic_mass": "284.265337",
@@ -663,6 +663,84 @@ def test_apply_chebi_record_curation_is_portable_and_recalculates_structure(monk
     assert patch["calculated_mw"] == "284.31"
     assert patch["calculated_monoisotopic_mass"] == "284.265337"
     assert patch["structure_components"] == []
+
+
+def test_apply_metabolite_structure_curation_recalculates_selected_chem_props():
+    corrected_smiles = "[2H]O[2H]"
+    db = CurationDb([{
+        "_key": "CHEBI:139244",
+        "id": "CHEBI:139244",
+        "chem_props": [
+            {
+                "source": "ChEBI",
+                "source_id": "CHEBI:139244",
+                "iso_smiles": "CC",
+                "calculated_mw": "30.07",
+                "calculated_monoisotopic_mass": "30.046950192",
+                "derived_inchi_key": "OTMSDBZUPAUEDD-UHFFFAOYSA-N",
+                "structure_components": [{"smiles": "CC", "mw": "30.07"}],
+            },
+            {
+                "source": "HMDB",
+                "source_id": "HMDB0000001",
+                "iso_smiles": "C",
+                "calculated_mw": "16.043",
+            },
+        ],
+    }])
+    adapter = ArangoOutputAdapter.__new__(ArangoOutputAdapter)
+    adapter.database_name = "metabolite_harmonization"
+    adapter._collection_schemas = {
+        "MetaboliteIdentifier": {"fields": {"chem_props": {
+            "type": "list",
+            "item_type": "object",
+            "fields": {
+                "source": "str",
+                "source_id": "str",
+                "iso_smiles": "str",
+                "calculated_mw": "str",
+                "calculated_monoisotopic_mass": "str",
+                "derived_inchi_key": "str",
+                "structure_components": {"type": "list", "item_type": "object"},
+            },
+        }}},
+    }
+    adapter.get_db = lambda: db
+    operation = {
+        "action": "set_properties",
+        "target": {
+            "kind": "node",
+            "curation_set": "metabolite_harmonization",
+            "model_type": "MetaboliteIdentifier",
+            "id": "CHEBI:139244",
+        },
+        "decisions": [{
+            "path": [
+                "chem_props",
+                {"match": {"source": "ChEBI", "source_id": "CHEBI:139244"}},
+                "iso_smiles",
+            ],
+            "mode": "set",
+            "value": corrected_smiles,
+            "observed_value": "CC",
+        }],
+        "note": "Restore deuterium atoms",
+    }
+
+    adapter.apply_curation_snapshots({
+        METABOLITE_RECORD_PROPERTIES: curation_snapshot(
+            METABOLITE_RECORD_PROPERTIES, operation
+        ),
+    })
+
+    patch = db.aql.calls[1]["bind_vars"]["patch"]
+    chebi = patch["chem_props"][0]
+    assert chebi["iso_smiles"] == corrected_smiles
+    assert chebi["calculated_mw"] == "20.027203556"
+    assert chebi["calculated_monoisotopic_mass"] == "20.023118176"
+    assert chebi["derived_inchi_key"] == "XLYOFNOQVPJJNP-ZSJDYOACSA-N"
+    assert chebi["structure_components"][0]["molecular_formula"] == "D2O"
+    assert patch["chem_props"][1]["calculated_mw"] == "16.043"
 
 
 def test_record_property_restore_replaces_persisted_document_without_override_fields():
