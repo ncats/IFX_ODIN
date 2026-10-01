@@ -1,93 +1,130 @@
 {% extends "base.html" %}
-{% block title %}Metabolite Curation Review{% endblock %}
+{% block title %}Active Metabolite Curations{% endblock %}
 
 {% block breadcrumb %}
 <span class="sep">/</span>
 <a href="{{ root_path }}/ramp-id-qa">Metabolite Harmonization Studio</a>
-<span class="sep">/</span>
-<span>Published Curations</span>
+<span class="sep">/</span><span>Active Curations</span>
 {% endblock %}
 
 {% block content %}
 <div class="ramp-id-page metabolite-id-qa-page">
     <section class="ramp-id-header">
         <div>
-            <h1>Published Metabolite Curations</h1>
-            <p>Review active equivalence removals and records quarantined from harmonization.</p>
+            <h1>Active Metabolite Curations</h1>
+            <p>Review the effective decisions currently shaping harmonization and validation.</p>
         </div>
         <a class="btn" href="{{ root_path }}/ramp-id-qa">Back to Studio</a>
     </section>
 
-    {% if error %}
-    <div class="inline-error">{{ error }}</div>
+    {% if error %}<div class="inline-error">{{ error }}</div>{% endif %}
+    {% if index.stream_errors %}
+    <div class="inline-error">
+        Some curation streams could not be loaded, so these results are incomplete.
+        <ul>{% for stream, message in index.stream_errors.items() %}<li><code>{{ stream }}</code>: {{ message }}</li>{% endfor %}</ul>
+    </div>
     {% endif %}
 
-    <section class="ramp-id-table-section">
-        <div class="ramp-id-section-header">
-            <div>
-                <h2>Quarantined Records</h2>
-                <p>{{ index.suppressed_records|length }} record{{ "" if index.suppressed_records|length == 1 else "s" }} excluded from every harmonization rule and output.</p>
+    <section class="card metabolite-curation-filters" aria-labelledby="curationFiltersHeading">
+        <div>
+            <h2 id="curationFiltersHeading">Filter active curations</h2>
+            <p>{{ "{:,}".format(index.filtered_count) }} matching of {{ "{:,}".format(index.total_count) }} active decisions.</p>
+        </div>
+        <form method="get" action="{{ root_path }}/ramp-id-qa/curations">
+            <label class="metabolite-curation-search">Search
+                <input type="search" name="q" value="{{ index.filters.query }}" placeholder="Identifier, rationale, batch, or curator">
+            </label>
+            <label>Type
+                <select name="curation_type" multiple size="5">
+                    {% for option in index.facets.curation_types %}
+                    <option value="{{ option.value }}" {% if option.value in index.filters.curation_types %}selected{% endif %}>{{ option.label }} ({{ option.count }})</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Sources involved
+                <select name="source" multiple size="5">
+                    {% for option in index.facets.sources %}
+                    <option value="{{ option.value }}" {% if option.value in index.filters.sources %}selected{% endif %}>{{ option.value }} ({{ option.count }})</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Curation batches
+                <select name="batch" multiple size="5">
+                    {% for option in index.facets.batches %}
+                    <option value="{{ option.value }}" {% if option.value in index.filters.batches %}selected{% endif %}>{{ option.label }} ({{ option.count }})</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <label>Curators
+                <select name="curator" multiple size="5">
+                    {% for option in index.facets.curators %}
+                    <option value="{{ option.value }}" {% if option.value in index.filters.curators %}selected{% endif %}>{{ option.value }} ({{ option.count }})</option>
+                    {% endfor %}
+                </select>
+            </label>
+            <div class="metabolite-curation-filter-actions">
+                <button class="btn btn-primary" type="submit">Apply filters</button>
+                <a class="btn btn-secondary" href="{{ root_path }}/ramp-id-qa/curations">Clear</a>
             </div>
-        </div>
-        {% if index.suppressed_records %}
-        <div class="table-wrap">
-            <table class="metabolite-curation-index-table">
-                <thead><tr><th>Identifier</th><th>Rationale</th><th>Published</th><th>Review</th></tr></thead>
-                <tbody>
-                {% for record in index.suppressed_records %}
-                <tr>
-                    <td><code>{{ record.identifier }}</code></td>
-                    <td>{{ record.decision.note or "No rationale recorded" }}</td>
-                    <td>
-                        {% if record.decision.batch_id %}<div>Batch <code>{{ record.decision.batch_id }}</code></div>{% endif %}
-                        {% if record.decision.published_at %}<div>{{ record.decision.published_at }}</div>{% endif %}
-                        {% if record.decision.published_by %}
-                        <div>by {{ record.decision.published_by.name|default(record.decision.published_by.id, true) }}</div>
-                        {% endif %}
-                    </td>
-                    <td><a class="btn" href="{{ root_path }}/ramp-id-qa?{{ record.review_query }}">Inspect or restore</a></td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <p>No records are currently quarantined.</p>
-        {% endif %}
+        </form>
+        <small>Choose multiple values with Ctrl/Command-click. Values within a facet match any selected value; facets combine together.</small>
     </section>
 
     <section class="ramp-id-table-section">
         <div class="ramp-id-section-header">
             <div>
-                <h2>Equivalence Deny List</h2>
-                <p>{{ index.denylist_pairs|length }} active pair{{ "" if index.denylist_pairs|length == 1 else "s" }}.</p>
+                <h2>Effective decisions</h2>
+                <p>Superseded, restored, reopened, and retired decisions are not included.</p>
             </div>
         </div>
-        {% if index.denylist_pairs %}
+        {% if index.rows %}
         <div class="table-wrap">
             <table class="metabolite-curation-index-table">
-                <thead><tr><th>Pair</th><th>Rationale</th><th>Published</th><th>Review</th></tr></thead>
+                <thead><tr><th>Type</th><th>Subject</th><th>Decision</th><th>Sources</th><th>Provenance</th><th>Review</th></tr></thead>
                 <tbody>
-                {% for pair in index.denylist_pairs %}
+                {% for row in index.rows %}
                 <tr>
-                    <td><code>{{ pair.left_id }}</code><br><code>{{ pair.right_id }}</code></td>
-                    <td>{{ pair.decision.note or "No rationale recorded" }}</td>
+                    <td>{{ row.type_label }}</td>
                     <td>
-                        {% if pair.decision.batch_id %}<div>Batch <code>{{ pair.decision.batch_id }}</code></div>{% endif %}
-                        {% if pair.decision.published_at %}<div>{{ pair.decision.published_at }}</div>{% endif %}
-                        {% if pair.decision.published_by %}
-                        <div>by {{ pair.decision.published_by.name|default(pair.decision.published_by.id, true) }}</div>
+                        <code>{{ row.primary }}</code>
+                        {% if row.secondary %}<div class="metabolite-curation-secondary">{{ row.secondary }}</div>{% endif %}
+                    </td>
+                    <td>
+                        {% if row.kind == "property" %}
+                        <div><strong>{{ row.property_path }}</strong></div>
+                        <div class="metabolite-curation-value-change"><code>{{ row.observed_value }}</code> → <code>{{ row.curated_value }}</code></div>
+                        {% elif row.kind == "mw" and row.reason %}<div>{{ row.reason|replace("_", " ")|title }}</div>{% endif %}
+                        <small>{{ row.note }}</small>
+                    </td>
+                    <td><div class="metabolite-curation-source-list">{% for source in row.sources %}<span>{{ source }}</span>{% endfor %}</div></td>
+                    <td>
+                        <div><strong>{{ row.batch_name }}</strong></div>
+                        <div><code>{{ row.batch_id }}</code></div>
+                        <div>{{ row.curator }}{% if row.published_at %} · {{ row.published_at }}{% endif %}</div>
+                        {% if row.origin %}
+                        <details class="metabolite-curation-origin">
+                            <summary>Original source</summary>
+                            {% if row.origin.repository %}<div>{{ row.origin.repository }}</div>{% endif %}
+                            {% if row.origin.path %}<div><code>{{ row.origin.path }}</code></div>{% endif %}
+                            {% if row.origin.commit %}<div>Commit <code>{{ row.origin.commit[:12] }}</code></div>{% endif %}
+                            {% if row.origin.attributed_curator != "Not recorded" %}<div>Attributed from Git: {{ row.origin.attributed_curator }}</div>{% elif row.origin.raw_author != "Not recorded" %}<div>Git author: {{ row.origin.raw_author }}</div>{% endif %}
+                            {% if row.origin.attribution_evidence and row.origin.attribution_evidence.pull_request %}<div>Evidence: GitHub PR #{{ row.origin.attribution_evidence.pull_request }} by {{ row.origin.attribution_evidence.login }}</div>{% endif %}
+                            {% if row.origin.authored_at %}<div>Original commit date: {{ row.origin.authored_at }}</div>{% endif %}
+                        </details>
                         {% endif %}
                     </td>
-                    <td><a class="btn" href="{{ root_path }}/ramp-id-qa?{{ pair.review_query }}">Review pair</a></td>
+                    <td><a class="btn btn-secondary btn-sm" href="{{ root_path }}{% if row.review_path %}{{ row.review_path }}{% else %}/ramp-id-qa?{{ row.review_query }}{% endif %}">Inspect</a></td>
                 </tr>
                 {% endfor %}
                 </tbody>
             </table>
         </div>
-        {% else %}
-        <p>No equivalence pairs are currently denied.</p>
-        {% endif %}
+        <nav class="metabolite-curation-pagination" aria-label="Curation pages">
+            {% if index.previous_query %}<a class="btn btn-secondary" href="{{ root_path }}/ramp-id-qa/curations?{{ index.previous_query }}">Previous</a>{% endif %}
+            <span>Page {{ index.page }} of {{ index.page_count }}</span>
+            {% if index.next_query %}<a class="btn btn-secondary" href="{{ root_path }}/ramp-id-qa/curations?{{ index.next_query }}">Next</a>{% endif %}
+        </nav>
+        {% else %}<p>No active curations match these filters.</p>{% endif %}
     </section>
 </div>
 {% endblock %}

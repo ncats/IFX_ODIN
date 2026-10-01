@@ -82,6 +82,10 @@ from src.qa_browser.harmonization_stage_maintenance import (
     delete_one_orphan_stage,
     delete_stage_artifacts,
 )
+from src.qa_browser.metabolite_curation_review import (
+    ReviewFilters,
+    build_active_curation_review,
+)
 from src.qa_browser.disease_id_graph import (
     DOWNLOADABLE_FILES,
     REVIEW_DECISION_OPTIONS,
@@ -906,6 +910,7 @@ def _metabolite_mw_adjudication_operation(
         },
         "observed_evidence_fingerprint": finding["evidence_fingerprint"],
         "observed_member_ids": member_ids,
+        "reviewed_stage_key": str(stage_key or "").strip(),
         "observed_evidence_snapshot": mw_review_evidence_snapshot(
             finding,
             validator_version=validation.get("version"),
@@ -5502,6 +5507,48 @@ def _build_mw_validation_review(stage_key: str, finding_id: str) -> dict:
     }
 
 
+def _find_mw_review_stage(
+    finding_id: str,
+    anchor_id: str,
+    member_ids: List[str],
+) -> Optional[dict]:
+    """Find the newest exact finding, or its closest current descendant."""
+    db = get_db("metabolite_harmonization")
+    if not db.has_collection(_HARMONIZATION_STAGE_COLLECTION):
+        return None
+    candidates = list(db.aql.execute(
+        f"""
+        FOR stage IN {_HARMONIZATION_STAGE_COLLECTION}
+          FILTER stage.status == "complete"
+          LET mw = stage.validation.mw_spread
+          // The detail page needs the full warning payload. The lightweight
+          // finding_index also contains findings beyond the saved display
+          // limit, but those cannot be opened or curated from this stage.
+          LET findings = IS_ARRAY(mw.warnings) ? mw.warnings : []
+          FOR finding IN findings
+            LET members = IS_ARRAY(finding.member_ids) ? finding.member_ids : []
+            LET exact = finding.finding_id == @finding_id
+            LET overlap = LENGTH(INTERSECTION(members, @member_ids))
+            FILTER exact OR overlap >= 2 OR @anchor_id IN members
+            SORT exact DESC, overlap DESC, stage.created_at DESC
+            LIMIT 1
+            RETURN {{
+              stage_key: stage._key,
+              finding_id: finding.finding_id,
+              exact: exact,
+              overlap: overlap
+            }}
+        """,
+        bind_vars={
+            "finding_id": finding_id,
+            "anchor_id": anchor_id,
+            "member_ids": member_ids,
+        },
+        max_runtime=120,
+    ))
+    return candidates[0] if candidates else None
+
+
 def _harmonization_stage_mw_validation_from_doc(
     stage: dict,
     adjudication_state: Optional[dict] = None,
@@ -9911,38 +9958,70 @@ def ramp_id_qa(
 
 @app.get("/ramp-id-qa/curations", response_class=HTMLResponse)
 def ramp_id_qa_curations(request: Request):
-    index = {
-        "denylist_pairs": [],
-        "suppressed_records": [],
-    }
+    snapshots = {}
+    stream_errors = {}
     error = None
     try:
-        state = _load_metabolite_edge_removal_curations()
-        index["denylist_pairs"] = [
-            {
-                "left_id": pair[0],
-                "right_id": pair[1],
-                "decision": (state.get("pair_decisions") or {}).get(pair) or {},
-                "review_query": urlencode({"denylist_pair": "|".join(pair)}),
+        storage = _curation_cart_storage()
+        with ThreadPoolExecutor(max_workers=len(_QA_CURATION_TYPES)) as executor:
+            futures = {
+                curation_type: executor.submit(
+                    resolve_curation_type,
+                    storage,
+                    curation_type,
+                    allow_missing=True,
+                )
+                for curation_type in _QA_CURATION_TYPES
             }
-            for pair, action in sorted((state.get("pair_states") or {}).items())
-            if action == "remove_edge"
-        ]
-        index["suppressed_records"] = [
-            {
-                "identifier": identifier,
-                "decision": (state.get("record_decisions") or {}).get(identifier) or {},
-                "review_query": urlencode({"id": identifier}),
-            }
-            for identifier in sorted(state.get("suppressed_identifier_ids") or [])
-        ]
+            for curation_type, future in futures.items():
+                try:
+                    snapshots[curation_type] = future.result()
+                except Exception as exc:
+                    stream_errors[curation_type] = str(exc)
+        query_params = request.query_params
+        try:
+            page = max(1, int(query_params.get("page") or 1))
+        except (TypeError, ValueError):
+            page = 1
+        index = build_active_curation_review(
+            snapshots,
+            ReviewFilters(
+                query=str(query_params.get("q") or "").strip(),
+                curation_types=tuple(query_params.getlist("curation_type")),
+                sources=tuple(value.upper() for value in query_params.getlist("source")),
+                batches=tuple(query_params.getlist("batch")),
+                curators=tuple(query_params.getlist("curator")),
+                page=page,
+            ),
+            stream_errors=stream_errors,
+        )
     except Exception as exc:
         error = str(exc)
+        index = build_active_curation_review({}, ReviewFilters())
     return templates.TemplateResponse(request, "ramp_id_curations.html", {
         "request": request,
         "index": index,
         "error": error,
     })
+
+
+@app.get("/ramp-id-qa/curations/mw-review")
+def ramp_id_qa_curation_mw_review(
+    finding_id: str,
+    anchor_id: str,
+    id: str = "",
+):
+    member_ids = _parse_metabolite_identifier_query(id)
+    candidate = _find_mw_review_stage(finding_id, anchor_id, member_ids)
+    if candidate:
+        query = urlencode({
+            "id": " ".join(member_ids),
+            "stages": candidate["stage_key"],
+            "mw_finding": candidate["finding_id"],
+        })
+    else:
+        query = urlencode({"id": " ".join(member_ids or [anchor_id])})
+    return _redirect_to(f"/ramp-id-qa?{query}")
 
 
 @app.post("/ramp-id-qa/pipelines")

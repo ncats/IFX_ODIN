@@ -241,6 +241,11 @@ Credentials in `src/use_cases/secrets/local_credentials.yaml`:
   than silently presenting bounded preview coverage as complete.
 
 - **Do not assume Git staging is the user's unit of work.** The user organizes changes in IntelliJ changelists. Prefer leaving commit grouping to the user unless they explicitly ask for staging or committing help, and be careful not to mix unrelated changelists.
+- **Do not keep one-time scripts in the repository by default.** Run migration,
+  audit, repair, and release-compilation helpers from a temporary location when
+  they are genuinely single-use. Preserve the resulting reviewed artifacts,
+  reports, or durable product code where appropriate, but add a script to the
+  repository only when it defines a repeatable supported workflow.
 - **Keep changes in collaborator-owned repositories minimal.** When working in
   IFX_Harmonizers or another repository primarily owned by a collaborator,
   make the smallest boundary-preserving change needed for the approved task.
