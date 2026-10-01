@@ -2718,6 +2718,98 @@ details summary:hover { color: var(--accent); }
     vertical-align: top;
 }
 
+.metabolite-curation-filters {
+    display: grid;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+}
+
+.metabolite-curation-filters h2,
+.metabolite-curation-filters p {
+    margin: 0;
+}
+
+.metabolite-curation-filters form {
+    align-items: start;
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metabolite-curation-filters label {
+    display: grid;
+    font-size: 0.82rem;
+    font-weight: 650;
+    gap: 0.3rem;
+    min-width: 0;
+}
+
+.metabolite-curation-filters input,
+.metabolite-curation-filters select {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+}
+
+.metabolite-curation-search {
+    grid-column: 1 / -1;
+}
+
+.metabolite-curation-filters select {
+    min-height: 7.2rem;
+}
+
+.metabolite-curation-filter-actions {
+    display: flex;
+    gap: 0.5rem;
+    grid-column: 1 / -1;
+}
+
+.metabolite-curation-secondary,
+.metabolite-curation-value-change,
+.metabolite-curation-origin {
+    margin-top: 0.35rem;
+}
+
+.metabolite-curation-secondary {
+    max-width: 32rem;
+    overflow-wrap: anywhere;
+}
+
+.metabolite-curation-source-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.metabolite-curation-source-list span {
+    background: var(--bg-alt);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.72rem;
+    padding: 0.1rem 0.4rem;
+}
+
+.metabolite-curation-pagination {
+    align-items: center;
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
+    margin-top: 0.8rem;
+}
+
+@media (max-width: 1100px) {
+    .metabolite-curation-filters form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 650px) {
+    .metabolite-curation-filters form {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
 .metabolite-property-editor {
     background: var(--bg-alt);
     border: 1px solid var(--border);

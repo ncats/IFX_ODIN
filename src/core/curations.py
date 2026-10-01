@@ -599,6 +599,21 @@ class ResolvedCurationOperation:
     published_by: Optional[dict]
 
 
+@dataclass(frozen=True)
+class ResolvedCurationBatch:
+    """Portable publication and origin metadata for one immutable batch."""
+
+    batch_id: str
+    name: str
+    description: str
+    created_at: str
+    published_at: str
+    created_by: Optional[dict]
+    source: Optional[dict]
+    object_key: str
+    sha256: str
+
+
 @dataclass
 class CurationSnapshot:
     curation_type: str
@@ -609,6 +624,7 @@ class CurationSnapshot:
     operations: list[ResolvedCurationOperation]
     fingerprint: str
     source_uri: str
+    batches_by_id: dict[str, ResolvedCurationBatch] = field(default_factory=dict)
     _active_by_subject: dict[tuple[str, ...], ResolvedCurationOperation] = field(
         default_factory=dict,
         repr=False,
@@ -648,6 +664,9 @@ class CurationSnapshot:
             ),
             "source_uri": self.source_uri,
         }
+
+    def batch(self, batch_id: str) -> Optional[ResolvedCurationBatch]:
+        return self.batches_by_id.get(batch_id)
 
 
 def _read_json(storage, key: str) -> tuple[dict, str]:
@@ -694,6 +713,7 @@ def resolve_curation_type(storage, curation_type: str, *, allow_missing: bool = 
     active_record_property_decisions: dict[
         tuple[str, ...], ResolvedRecordPropertyDecision
     ] = {}
+    batches_by_id: dict[str, ResolvedCurationBatch] = {}
     for entry in manifest.get("batches") or []:
         batch_id = str(entry.get("batch_id") or "").strip()
         object_key = str(entry.get("object_key") or batch_key(curation_type, batch_id))
@@ -708,6 +728,17 @@ def resolve_curation_type(storage, curation_type: str, *, allow_missing: bool = 
             raise ValueError(f"Curation batch id mismatch: s3://{storage.bucket}/{object_key}")
         batch_ids.append(batch_id)
         batch_hashes.append(actual_hash)
+        batches_by_id[batch_id] = ResolvedCurationBatch(
+            batch_id=batch_id,
+            name=str(batch.get("name") or ""),
+            description=str(batch.get("description") or ""),
+            created_at=str(batch.get("created_at") or ""),
+            published_at=str(batch.get("published_at") or batch.get("created_at") or ""),
+            created_by=(dict(batch["created_by"]) if isinstance(batch.get("created_by"), dict) else None),
+            source=(dict(batch["source"]) if isinstance(batch.get("source"), dict) else None),
+            object_key=object_key,
+            sha256=actual_hash,
+        )
         for operation in batch.get("operations") or []:
             validate_operation(curation_type, operation)
             resolved = ResolvedCurationOperation(
@@ -758,6 +789,7 @@ def resolve_curation_type(storage, curation_type: str, *, allow_missing: bool = 
         operations=operations,
         fingerprint=payload_sha256(fingerprint_payload),
         source_uri=f"s3://{storage.bucket}/{key}",
+        batches_by_id=batches_by_id,
         _active_by_subject=active_by_subject,
         _active_record_property_decisions=active_record_property_decisions,
     )

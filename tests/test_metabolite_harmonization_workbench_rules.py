@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 from fastapi import HTTPException
+from starlette.datastructures import QueryParams
 
 import src.qa_browser.app as qa_app
 from src.core.curations import (
@@ -359,6 +360,7 @@ def test_reaccepting_after_anchor_removal_uses_current_anchor(monkeypatch):
     )
 
     assert operation["target"]["anchor_id"] == "HMDB:1"
+    assert operation["reviewed_stage_key"] == "stage-1"
     assert "superseded_anchor_ids" not in operation
     assert operation["observed_evidence_snapshot"] == {
         "version": "mw-review-evidence-v1",
@@ -1579,19 +1581,23 @@ def test_record_suppression_removes_identifier_before_stage_rules(monkeypatch):
     assert stage["suppression_curation_batch_ids"] == ["quarantine-1"]
 
 
-def test_published_curation_index_lists_denied_pairs_and_quarantined_records(monkeypatch):
-    pair = ("CHEBI:1", "HMDB:1")
+def test_active_curation_index_loads_every_stream_and_forwards_url_filters(monkeypatch):
     captured = {}
+    storage = object()
+    loaded_types = []
+    monkeypatch.setattr(qa_app, "_curation_cart_storage", lambda: storage)
     monkeypatch.setattr(
-        qa_app,
-        "_load_metabolite_edge_removal_curations",
-        lambda: {
-            "pair_states": {pair: "remove_edge"},
-            "pair_decisions": {pair: {"note": "Different structures"}},
-            "suppressed_identifier_ids": {"REFMET:RM0233954"},
-            "record_decisions": {
-                "REFMET:RM0233954": {"note": "Internally inconsistent fields"},
-            },
+        qa_app, "resolve_curation_type",
+        lambda actual_storage, curation_type, allow_missing: (
+            loaded_types.append(curation_type) or {"type": curation_type}
+        ),
+    )
+    monkeypatch.setattr(
+        qa_app, "build_active_curation_review",
+        lambda snapshots, filters, stream_errors: {
+            "snapshots": snapshots,
+            "filters": filters,
+            "stream_errors": stream_errors,
         },
     )
     monkeypatch.setattr(
@@ -1603,20 +1609,98 @@ def test_published_curation_index_lists_denied_pairs_and_quarantined_records(mon
         }) or context,
     )
 
-    context = qa_app.ramp_id_qa_curations(request=object())
+    request = type("Request", (), {
+        "query_params": QueryParams(
+            "q=mass&source=CHEBI&source=HMDB&batch=legacy-1&curator=Keith&page=2"
+        )
+    })()
+    context = qa_app.ramp_id_qa_curations(request=request)
 
     assert captured["template"] == "ramp_id_curations.html"
-    assert context["index"]["denylist_pairs"] == [{
-        "left_id": "CHEBI:1",
-        "right_id": "HMDB:1",
-        "decision": {"note": "Different structures"},
-        "review_query": "denylist_pair=CHEBI%3A1%7CHMDB%3A1",
-    }]
-    assert context["index"]["suppressed_records"] == [{
-        "identifier": "REFMET:RM0233954",
-        "decision": {"note": "Internally inconsistent fields"},
-        "review_query": "id=REFMET%3ARM0233954",
-    }]
+    assert set(loaded_types) == set(qa_app._QA_CURATION_TYPES)
+    assert context["index"]["filters"].query == "mass"
+    assert context["index"]["filters"].sources == ("CHEBI", "HMDB")
+    assert context["index"]["filters"].batches == ("legacy-1",)
+    assert context["index"]["filters"].curators == ("Keith",)
+    assert context["index"]["filters"].page == 2
+
+
+def test_mw_curation_review_redirects_to_exact_or_descendant_finding(monkeypatch):
+    captured = {}
+
+    class FakeAql:
+        @staticmethod
+        def execute(query, bind_vars, max_runtime):
+            captured.update({"query": query, "bind_vars": bind_vars})
+            return [{
+                "stage_key": "stage-07-current",
+                "finding_id": "mw-" + "2" * 24,
+                "exact": False,
+                "overlap": 2,
+            }]
+
+    class FakeDb:
+        aql = FakeAql()
+
+        @staticmethod
+        def has_collection(name):
+            return name == qa_app._HARMONIZATION_STAGE_COLLECTION
+
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: FakeDb())
+
+    response = qa_app.ramp_id_qa_curation_mw_review(
+        finding_id="mw-" + "1" * 24,
+        anchor_id="CHEBI:1",
+        id="CHEBI:1 HMDB:1",
+    )
+
+    assert captured["bind_vars"] == {
+        "finding_id": "mw-" + "1" * 24,
+        "anchor_id": "CHEBI:1",
+        "member_ids": ["CHEBI:1", "HMDB:1"],
+    }
+    assert "mw.warnings" in captured["query"]
+    assert "mw.finding_index" not in captured["query"]
+    assert "stages=stage-07-current" in response.headers["location"]
+    assert ("mw_finding=mw-" + "2" * 24) in response.headers["location"]
+
+
+def test_mw_curation_review_does_not_select_index_only_finding(monkeypatch):
+    captured = {}
+
+    class FakeAql:
+        @staticmethod
+        def execute(query, bind_vars, max_runtime):
+            captured["query"] = query
+            # Model an exact finding which exists only in finding_index. A
+            # query limited to detailed warnings has no reviewable result.
+            if "mw.finding_index" in query:
+                return [{
+                    "stage_key": "stage-index-only",
+                    "finding_id": bind_vars["finding_id"],
+                    "exact": True,
+                    "overlap": 2,
+                }]
+            return []
+
+    class FakeDb:
+        aql = FakeAql()
+
+        @staticmethod
+        def has_collection(name):
+            return name == qa_app._HARMONIZATION_STAGE_COLLECTION
+
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: FakeDb())
+
+    response = qa_app.ramp_id_qa_curation_mw_review(
+        finding_id="mw-" + "1" * 24,
+        anchor_id="CHEBI:1",
+        id="CHEBI:1 HMDB:1",
+    )
+
+    assert "mw.finding_index" not in captured["query"]
+    assert "stages=" not in response.headers["location"]
+    assert "mw_finding=" not in response.headers["location"]
 
 
 def test_published_assertion_can_be_retired_chronologically():

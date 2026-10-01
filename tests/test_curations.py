@@ -158,7 +158,11 @@ def test_record_property_resolution_is_latest_wins_per_set_and_path():
             "format_version": 2,
             "curation_batch_id": batch_id,
             "curation_type": METABOLITE_RECORD_PROPERTIES,
+            "name": f"Property batch {index}",
+            "description": "Correct source fields",
+            "created_by": {"id": "curator", "name": "Curator"},
             "published_at": f"2026-09-{index:02d}T12:00:00Z",
+            "source": {"type": "qa_browser_curation_cart"},
             "operations": operations,
         }
         key = batch_key(METABOLITE_RECORD_PROPERTIES, batch_id)
@@ -177,6 +181,9 @@ def test_record_property_resolution_is_latest_wins_per_set_and_path():
     decisions = snapshot.record_property_decisions_for_set("metabolite_harmonization")
     assert len(decisions) == 1
     assert decisions[0].value == "second"
+    assert snapshot.batch("batch-2").name == "Property batch 2"
+    assert snapshot.batch("batch-2").created_by == {"id": "curator", "name": "Curator"}
+    assert snapshot.batch("batch-2").source == {"type": "qa_browser_curation_cart"}
 
 
 def test_record_property_editor_uses_stable_selectors_for_nested_source_records():
