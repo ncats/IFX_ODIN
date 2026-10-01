@@ -4,8 +4,13 @@
     <li>
         <div class="metabolite-id-pipeline-tree-node" title="{{ node.stage_key }}" data-pipeline-stage-card="{{ node.stage_key }}">
             <small>{% if node.stage_index == 0 %}Baseline{% else %}Stage {{ node.stage_index }}{% endif %}</small>
-            <strong><a href="{{ root_path }}/ramp-id-qa/stages/{{ node.stage_key }}" target="_blank" rel="noopener noreferrer">{{ node.label }}</a></strong>
-            {% if node.stats %}
+            <strong>{% if node.is_missing %}{{ node.label }}{% else %}<a href="{{ root_path }}/ramp-id-qa/stages/{{ node.stage_key }}" target="_blank" rel="noopener noreferrer">{{ node.label }}</a>{% endif %}</strong>
+            {% if node.is_missing %}
+            <div class="metabolite-id-curation-sync-warning">
+                <strong>Stage snapshot missing</strong><br>
+                Metrics and stage details are unavailable.
+            </div>
+            {% elif node.stats %}
             <dl class="metabolite-id-pipeline-tree-stats" aria-label="Stage snapshot statistics">
                 <div title="Metabolites in this stage snapshot"><dt>Metabolites</dt><dd>{{ "{:,}".format(node.stats.clique_count|default(0, true)) }}</dd></div>
                 <div title="Molecular-weight validation"><dt>MW</dt><dd>{% if node.stats.mw_validation_computed %}<span class="metabolite-mw-count metabolite-mw-count-error{% if not node.stats.mw_error_count|default(0) %} is-zero{% endif %}">{{ "{:,}".format(node.stats.mw_error_count|default(0)) }} err</span><span class="metabolite-mw-count-separator"> · </span><span class="metabolite-mw-count metabolite-mw-count-warning{% if not node.stats.mw_review_warning_count|default(0) %} is-zero{% endif %}">{{ "{:,}".format(node.stats.mw_review_warning_count|default(0)) }} warn</span>{% if node.stats.mw_accepted_count|default(0) %}<span class="metabolite-mw-count-separator"> · </span><span class="metabolite-mw-count metabolite-mw-count-accepted">{{ "{:,}".format(node.stats.mw_accepted_count) }} accepted</span>{% endif %}{% else %}—{% endif %}</dd></div>
@@ -17,7 +22,9 @@
                 <div title="Expected-clique assertion results"><dt>Assertions</dt><dd class="metabolite-id-pipeline-tree-assertions{% if node.stats.assertion_count|default(0, true) %} {{ 'is-fail' if node.stats.assertion_failure_count else 'is-pass' }}{% endif %}">{% if not node.stats.assertion_count|default(0, true) %}None{% elif node.stats.assertion_failure_count %}{{ "{:,}".format(node.stats.assertion_failure_count) }}/{{ "{:,}".format(node.stats.assertion_count) }} fail{% else %}{{ "{:,}".format(node.stats.assertion_pass_count) }}/{{ "{:,}".format(node.stats.assertion_count) }} pass{% endif %}</dd></div>
             </dl>
             {% endif %}
+            {% if not node.is_missing %}
             <button type="button" class="metabolite-id-pipeline-tree-select" data-pipeline-stage-select="{{ node.stage_key }}" data-stage-label="{{ node.label }}" aria-pressed="false">Select stage</button>
+            {% endif %}
             {% for terminal in node.terminals %}
             <a class="metabolite-id-pipeline-tree-endpoint" href="{{ root_path }}/ramp-id-qa/pipelines/{{ terminal.pipeline_key }}" target="_blank" rel="noopener noreferrer" title="{{ terminal.pipeline_key }}{% if terminal.run_key %} · {{ terminal.run_key }}{% endif %}">
                 {{ terminal.pipeline_name }}
@@ -76,6 +83,16 @@
                         Harmonization rules have changed: Re-run to rebuild
                     </div>
                     {% endif %}
+                    {% if pipeline.source_graph_changed %}
+                    <div class="metabolite-id-curation-sync-warning">
+                        The source graph has changed: Re-run to rebuild
+                    </div>
+                    {% endif %}
+                    {% if pipeline.has_stage_integrity_failure %}
+                    <div class="metabolite-id-curation-sync-warning">
+                        {{ pipeline.missing_stage_count }} stage snapshot{{ " is" if pipeline.missing_stage_count == 1 else "s are" }} missing. Repair the pipeline to restore {{ "it" if pipeline.missing_stage_count == 1 else "them" }}.
+                    </div>
+                    {% endif %}
                     {% if pipeline.needs_curation_sync %}
                     <div class="metabolite-id-curation-sync-warning">
                         {% if pipeline.edge_curations_changed and pipeline.assertion_curations_changed %}
@@ -129,7 +146,7 @@
                             <button type="submit" class="btn btn-primary">{{ pipeline.run_button_label }}</button>
                         </form>
                         {% endif %}
-                        <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}/delete" onsubmit="return window.confirm('Delete this pipeline and any stages no other pipeline uses?');">
+                        <form method="post" action="{{ root_path }}/ramp-id-qa/pipelines/{{ pipeline._key }}/delete" onsubmit="return window.confirm('Delete this saved pipeline? Shared stage snapshots will be retained.');">
                             <button type="submit" class="btn btn-secondary" {% if run_active or delete_active %}disabled{% endif %}>Delete pipeline</button>
                         </form>
                     </div>
