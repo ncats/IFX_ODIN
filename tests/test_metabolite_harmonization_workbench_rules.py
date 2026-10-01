@@ -1,6 +1,8 @@
 import asyncio
 import hashlib
 import json
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -105,6 +107,99 @@ def test_mw_acceptance_becomes_warning_and_membership_change_makes_it_stale():
         {"decisions": [decision]},
     )
     assert stale_without_anchor["warnings"][0]["review_status"] == "stale"
+
+
+def test_mw_acceptance_survives_legacy_fingerprint_migration_only_when_evidence_matches():
+    finding = {
+        "finding_id": "mw-current",
+        "anchor_id": "CHEBI:1",
+        "member_ids": ["CHEBI:1", "HMDB:1"],
+        "evidence_fingerprint": "a" * 64,
+        "evidence_fingerprint_version": "mw-finding-v1",
+        "severity": "error",
+        "mass_summaries": {"average": {"min": 100.0, "max": 150.0}},
+        "channel_results": {"average": {"mass_cluster_count": 2}},
+        "component_matches": [],
+        "member_mass_examples": [
+            {"member_id": "CHEBI:1", "average_masses": [100.0]},
+            {"member_id": "HMDB:1", "average_masses": [150.0]},
+        ],
+    }
+    validation = {
+        "computed": True,
+        "version": "mw-validator-v1",
+        "threshold": 0.10,
+        "finding_index": [{
+            key: finding[key]
+            for key in (
+                "finding_id", "anchor_id", "member_ids",
+                "evidence_fingerprint", "evidence_fingerprint_version",
+                "severity",
+            )
+        }],
+        "warnings": [finding],
+    }
+    legacy_fingerprint = qa_app._legacy_mw_finding_metadata(
+        validation, finding
+    )["evidence_fingerprint"]
+    decision = {
+        "action": "accept_mw_discrepancy",
+        "target": {"anchor_id": "CHEBI:1"},
+        "observed_member_ids": finding["member_ids"],
+        "observed_evidence_fingerprint": legacy_fingerprint,
+    }
+
+    accepted = _with_mw_adjudications(validation, {"decisions": [decision]})
+
+    assert accepted["warnings"][0]["review_status"] == "accepted"
+    assert accepted["error_count"] == 0
+
+    changed_validation = {
+        **validation,
+        "warnings": [{
+            **finding,
+            "evidence_fingerprint": "b" * 64,
+            "member_mass_examples": [
+                {"member_id": "CHEBI:1", "average_masses": [100.0]},
+                {"member_id": "HMDB:1", "average_masses": [175.0]},
+            ],
+        }],
+    }
+    stale = _with_mw_adjudications(
+        changed_validation, {"decisions": [decision]}
+    )
+
+    assert stale["warnings"][0]["review_status"] == "stale"
+    assert stale["error_count"] == 1
+
+
+def test_mw_legacy_compatibility_fingerprint_counts_acceptance_outside_display_sample():
+    decision = {
+        "action": "accept_mw_discrepancy",
+        "target": {"anchor_id": "CHEBI:1"},
+        "observed_member_ids": ["CHEBI:1", "HMDB:1"],
+        "observed_evidence_fingerprint": "legacy-fingerprint",
+    }
+    result = _with_mw_adjudications(
+        {
+            "computed": True,
+            "finding_index": [{
+                "finding_id": "mw-current",
+                "anchor_id": "CHEBI:1",
+                "member_ids": ["CHEBI:1", "HMDB:1"],
+                "evidence_fingerprint": "current-fingerprint",
+                "evidence_fingerprint_version": "mw-finding-v1",
+                "legacy_evidence_fingerprint": "legacy-fingerprint",
+                "severity": "error",
+            }],
+            "warnings": [],
+        },
+        {"decisions": [decision]},
+    )
+
+    assert result["error_count"] == 0
+    assert result["accepted_count"] == 1
+    assert result["stale_acceptance_count"] == 0
 
 
 def test_mw_adjudication_preserves_totals_beyond_display_sample():
@@ -366,10 +461,53 @@ def test_harmonization_pipeline_tree_shares_prefix_and_branches_at_first_differe
     assert shared["stage_key"] == "shared-1"
     assert shared["pipeline_count"] == 2
     assert shared["stats"]["clique_count"] == 123
+    assert shared["is_missing"] is False
+    assert baseline["is_missing"] is True
     assert [child["stage_key"] for child in shared["children"]] == ["branch-a-2", "branch-b-2"]
     assert [
         child["terminals"][0]["pipeline_name"] for child in shared["children"]
     ] == ["Anomer merge with cleanup A", "Anomer merge with cleanup B"]
+
+
+def test_graph_fingerprint_uses_content_checksums_not_only_counts():
+    class FakeAql:
+        def execute(self, _query, **_kwargs):
+            return [{
+                "metabolite_identifier_count": 10,
+                "equivalence_edge_count": 9,
+            }]
+
+    class FakeCollection:
+        def __init__(self, revision):
+            self._revision = revision
+
+        def revision(self):
+            return self._revision
+
+    class FakeDb:
+        aql = FakeAql()
+
+        def __init__(self, node_checksum, edge_checksum):
+            self.checksums = {
+                "MetaboliteIdentifier": node_checksum,
+                "MetaboliteIdentifierMappingEdge": edge_checksum,
+            }
+
+        def collection(self, name):
+            return FakeCollection(self.checksums[name])
+
+        def has_collection(self, _name):
+            return _name in self.checksums
+
+    first = qa_app._harmonization_graph_fingerprint(FakeDb("nodes-a", "edges-a"))
+    second = qa_app._harmonization_graph_fingerprint(FakeDb("nodes-b", "edges-a"))
+
+    assert first["metabolite_identifier_count"] == second["metabolite_identifier_count"]
+    assert (
+        first["source_collection_revisions"]["MetaboliteIdentifier"]
+        != second["source_collection_revisions"]["MetaboliteIdentifier"]
+    )
+    assert qa_app._harmonization_stage_key([], {}, first) != qa_app._harmonization_stage_key([], {}, second)
 
 
 def test_harmonization_pipeline_page_loads_only_requested_pipeline(monkeypatch):
@@ -1693,6 +1831,93 @@ def test_pipeline_engine_change_enables_validation_rebuild():
     assert pipelines[0]["run_button_label"] == "Re-run pipeline"
 
 
+def test_missing_completed_stage_requires_pipeline_repair():
+    pipelines = [{
+        "_key": "broken",
+        "engine_version": qa_app._HARMONIZATION_ENGINE_VERSION,
+        "rule_ids": ["apply_curations"],
+        "rule_parameters": {"apply_curations": {
+            "curation_types": [METABOLITE_EQUIVALENCE_EDGES],
+        }},
+        "runs": [{
+            "_key": "complete-run",
+            "status": "complete",
+            "engine_version": qa_app._HARMONIZATION_ENGINE_VERSION,
+            "curation_fingerprint": payload_sha256({
+                METABOLITE_EQUIVALENCE_EDGES: "edges-v1",
+            }),
+            "stage_keys": ["baseline", "missing-stage"],
+        }],
+    }]
+    curation_state = {"edge_fingerprint": "edges-v1"}
+
+    _annotate_harmonization_pipeline_curation_status(
+        pipelines,
+        curation_state,
+        available_stage_keys={"baseline"},
+    )
+
+    assert pipelines[0]["missing_stage_keys"] == ["missing-stage"]
+    assert pipelines[0]["has_stage_integrity_failure"] is True
+    assert pipelines[0]["run_action_kind"] == "repair"
+    assert pipelines[0]["run_button_label"] == "Repair pipeline"
+    assert pipelines[0]["run_action_enabled"] is True
+
+
+def test_changed_source_graph_requires_rebuild_even_when_counts_might_match():
+    pipelines = [{
+        "_key": "source-stale",
+        "engine_version": qa_app._HARMONIZATION_ENGINE_VERSION,
+        "rule_ids": [],
+        "runs": [{
+            "_key": "complete-run",
+            "status": "complete",
+            "engine_version": qa_app._HARMONIZATION_ENGINE_VERSION,
+            "source_graph_content_fingerprint": "old-source-build",
+            "stage_keys": ["baseline"],
+        }],
+    }]
+
+    _annotate_harmonization_pipeline_curation_status(
+        pipelines,
+        None,
+        available_stage_keys={"baseline"},
+        current_source_graph_fingerprint="new-source-build",
+    )
+
+    assert pipelines[0]["source_graph_changed"] is True
+    assert pipelines[0]["run_action_kind"] == "rebuild"
+    assert pipelines[0]["run_button_label"] == "Re-run pipeline"
+    assert pipelines[0]["run_action_enabled"] is True
+
+
+def test_unchanged_source_graph_content_remains_current():
+    pipelines = [{
+        "_key": "source-current",
+        "engine_version": qa_app._HARMONIZATION_ENGINE_VERSION,
+        "rule_ids": [],
+        "runs": [{
+            "_key": "complete-run",
+            "status": "complete",
+            "engine_version": qa_app._HARMONIZATION_ENGINE_VERSION,
+            "source_graph_content_fingerprint": "same-source-content",
+            "stage_keys": ["baseline"],
+        }],
+    }]
+
+    _annotate_harmonization_pipeline_curation_status(
+        pipelines,
+        None,
+        available_stage_keys={"baseline"},
+        current_source_graph_fingerprint="same-source-content",
+    )
+
+    assert pipelines[0]["source_graph_changed"] is False
+    assert pipelines[0]["run_action_kind"] == "current"
+    assert pipelines[0]["run_button_label"] == "Up to date"
+    assert pipelines[0]["run_action_enabled"] is False
+
+
 def test_pipeline_job_history_hides_failure_superseded_by_successful_retry():
     jobs = [
         {
@@ -1723,6 +1948,40 @@ def test_pipeline_job_history_hides_failure_superseded_by_successful_retry():
 
     assert [job["id"] for job in jobs_by_pipeline["pipeline-a"]] == ["successful-retry"]
     assert [job["id"] for job in jobs_by_pipeline["pipeline-b"]] == ["unresolved-failure"]
+
+
+def test_pipeline_jobs_serialize_shared_stage_mutations(monkeypatch):
+    active_count = 0
+    max_active_count = 0
+    count_lock = threading.Lock()
+
+    def fake_run(pipeline_key):
+        nonlocal active_count, max_active_count
+        with count_lock:
+            active_count += 1
+            max_active_count = max(max_active_count, active_count)
+        time.sleep(0.02)
+        with count_lock:
+            active_count -= 1
+        return {"_key": f"run-{pipeline_key}", "pipeline_name": pipeline_key}
+
+    monkeypatch.setattr(qa_app, "_run_harmonization_pipeline", fake_run)
+    monkeypatch.setattr(qa_app, "_update_metabolite_snapshot_job", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(qa_app, "_harmonization_pipeline_mutation_lock", threading.Lock())
+
+    threads = [
+        threading.Thread(
+            target=qa_app._run_metabolite_snapshot_job,
+            args=(f"job-{index}", "run_pipeline", {"pipeline_key": f"pipeline-{index}"}),
+        )
+        for index in range(2)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert max_active_count == 1
 
 
 def test_reconcile_interrupted_runs_only_targets_prior_boot_for_same_instance():
@@ -1990,7 +2249,7 @@ def test_successful_stage_materialization_marks_complete_only_after_writes(monke
     assert stage_doc["status"] == "complete"
 
 
-def test_replacing_pipeline_runs_deletes_only_unreferenced_stage_artifacts(monkeypatch):
+def test_replacing_pipeline_runs_preserves_immutable_stage_artifacts(monkeypatch):
     class FakeAql:
         def __init__(self):
             self.deleted_run_keys = []
@@ -2044,13 +2303,13 @@ def test_replacing_pipeline_runs_deletes_only_unreferenced_stage_artifacts(monke
 
     assert result == {
         "deleted_run_keys": ["old-run-a", "old-run-b"],
-        "deleted_stage_keys": ["old-curated", "preexisting-zombie"],
-        "deleted_superseded_stage_keys": ["old-curated"],
-        "deleted_orphan_stage_keys": ["preexisting-zombie"],
+        "deleted_stage_keys": [],
+        "deleted_superseded_stage_keys": [],
+        "deleted_orphan_stage_keys": [],
     }
     assert db.aql.deleted_run_keys == ["old-run-a", "old-run-b"]
-    assert deleted_artifacts == ["old-curated"]
-    assert db.stages.deleted == ["old-curated"]
+    assert deleted_artifacts == []
+    assert db.stages.deleted == []
 
 
 def test_delete_unreferenced_harmonization_stages_rechecks_before_deleting(monkeypatch):
@@ -3593,6 +3852,26 @@ def test_stage_overview_exposes_generic_structure_validation_counts(monkeypatch)
     assert overview["generic_structure_rule_enabled"] is True
     assert overview["generic_structure_failure_count"] == 3
     assert overview["generic_structure_gap_count"] == 7
+
+
+def test_requested_stage_overview_requires_complete_stage(monkeypatch):
+    class FakeAql:
+        def execute(self, query, bind_vars=None, **_kwargs):
+            assert 's._key IN @stage_keys AND s.status == "complete"' in query
+            assert bind_vars["stage_keys"] == ["failed-stage"]
+            return []
+
+    class FakeDb:
+        aql = FakeAql()
+
+        def has_collection(self, name):
+            return name == qa_app._HARMONIZATION_STAGE_COLLECTION
+
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: FakeDb())
+
+    assert qa_app._list_harmonization_stage_overview_stats(
+        stage_keys=["failed-stage"], include_distribution=False
+    ) == []
 
 
 def test_generic_structure_stage_stats_lists_affected_cliques():

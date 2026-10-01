@@ -302,6 +302,7 @@ _HARMONIZATION_RUNNER_BOOT_ID = uuid.uuid4().hex
 _HARMONIZATION_RECONCILIATION_RETRY_SECONDS = 30
 _harmonization_reconciliation_lock = threading.Lock()
 _harmonization_reconciliation_last_attempt = 0.0
+_harmonization_pipeline_mutation_lock = threading.Lock()
 _HARMONIZATION_STAGE_COLLECTION = "HarmonizationStage"
 _HARMONIZED_METABOLITE_COLLECTION = "HarmonizedMetabolite"
 _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION = "HarmonizedMetaboliteMemberEdge"
@@ -310,6 +311,17 @@ _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION = "HarmonizationStageAct
 _HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v9"
 _HARMONIZATION_AQL_BATCH_SIZE = 1000
 _HARMONIZATION_ORPHAN_GRACE_PERIOD = timedelta(hours=1)
+_HARMONIZATION_SOURCE_COLLECTIONS = (
+    "MetaboliteIdentifier",
+    "MetaboliteIdentifierMappingEdge",
+    "ChemicalEntity",
+    "IsAEdge",
+    "MetabolitePathwayEdge",
+    "HmdbMetaboliteProteinAssociationEdge",
+    "RheaMetaboliteReactionEdge",
+    "MetaboliteClassificationEdge",
+    "HmdbMetaboliteOntologyEdge",
+)
 _HMDB_IGNORED_PREFIX_DEFAULTS = [
     "BiGG",
     "BioCyc",
@@ -2063,6 +2075,36 @@ def _canonical_json_digest(payload: dict, length: int = 16) -> str:
     return hashlib.sha1(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:length]
 
 
+def _harmonization_source_build_fingerprint(db) -> Optional[str]:
+    """Return the authoritative ETL build identity without scanning graph data."""
+    if not db.has_collection("metadata_store"):
+        return None
+    metadata_doc = db.collection("metadata_store").get("etl_metadata") or {}
+    metadata = metadata_doc.get("value") or {}
+    registry_datasets = sorted([
+        {
+            "snapshot_id": item.get("snapshot_id"),
+            "build_key": item.get("build_key"),
+            "publication_fingerprint": item.get("publication_fingerprint"),
+        }
+        for item in metadata.get("registry_datasets") or []
+    ], key=lambda item: (
+        item.get("snapshot_id") or "",
+        item.get("build_key") or "",
+        item.get("publication_fingerprint") or "",
+    ))
+    identity = {
+        "run_key": metadata.get("_key"),
+        "run_date": metadata.get("run_date"),
+        "source_yaml": metadata.get("source_yaml"),
+        "git_commit": (metadata.get("git_info") or {}).get("git_commit"),
+        "registry_datasets": registry_datasets,
+    }
+    if not any(value for value in identity.values()):
+        return None
+    return payload_sha256(identity)
+
+
 def _harmonization_graph_fingerprint(db) -> dict:
     row = list(db.aql.execute(
         """
@@ -2073,9 +2115,26 @@ def _harmonization_graph_fingerprint(db) -> dict:
         """,
         max_runtime=120,
     ))[0]
+    source_collection_revisions = {
+        collection_name: db.collection(collection_name).revision()
+        for collection_name in _HARMONIZATION_SOURCE_COLLECTIONS
+        if db.has_collection(collection_name)
+    }
+    source_graph_fingerprint = _harmonization_source_build_fingerprint(db)
+    source_graph_content_fingerprint = payload_sha256({
+        "source_graph_fingerprint": source_graph_fingerprint,
+        "source_collection_revisions": source_collection_revisions,
+    })
     return {
         "database": "metabolite_harmonization",
         "engine_version": _HARMONIZATION_ENGINE_VERSION,
+        "source_graph_fingerprint": source_graph_fingerprint,
+        "source_graph_content_fingerprint": source_graph_content_fingerprint,
+        "source_collection_revisions": source_collection_revisions,
+        # Counts are useful diagnostics but are not graph identity: two rebuilds
+        # can change records without changing collection cardinality. Arango's
+        # collection revision tokens make deterministic stage reuse sensitive
+        # to inserts, deletes, and updates without scanning every document.
         **row,
     }
 
@@ -2200,12 +2259,6 @@ def _delete_previous_harmonization_pipeline_runs(db, pipeline_key: str, current_
         max_runtime=120,
     ))
     previous_run_keys = [run["_key"] for run in previous_runs]
-    candidate_stage_keys = sorted({
-        stage_key
-        for run in previous_runs
-        for stage_key in run.get("stage_keys") or []
-        if stage_key
-    })
     if previous_run_keys:
         db.aql.execute(
             f"""
@@ -2217,43 +2270,21 @@ def _delete_previous_harmonization_pipeline_runs(db, pipeline_key: str, current_
             max_runtime=120,
         )
 
-    deleted_stage_keys = []
-    stage_collection = db.collection(_HARMONIZATION_STAGE_COLLECTION)
-    for stage_key in candidate_stage_keys:
-        if _stage_is_referenced_by_any_run(db, stage_key):
-            continue
-        _delete_harmonization_stage_artifacts(db, stage_key)
-        if stage_collection.has(stage_key):
-            stage_collection.delete(stage_key)
-        deleted_stage_keys.append(stage_key)
-    deleted_superseded_stage_keys = list(deleted_stage_keys)
-    deleted_orphan_stage_keys = _delete_unreferenced_harmonization_stages(db)
-    deleted_stage_keys.extend(
-        stage_key for stage_key in deleted_orphan_stage_keys
-        if stage_key not in deleted_stage_keys
-    )
+    # Stages are deterministic, shared, immutable cache entries. Deleting their
+    # large artifact sets inline creates a check-then-delete race with another
+    # pipeline that is concurrently reusing the same stage. Reclaim them only
+    # through a future exclusive maintenance operation.
     return {
         "deleted_run_keys": previous_run_keys,
-        "deleted_stage_keys": deleted_stage_keys,
-        "deleted_superseded_stage_keys": deleted_superseded_stage_keys,
-        "deleted_orphan_stage_keys": deleted_orphan_stage_keys,
+        "deleted_stage_keys": [],
+        "deleted_superseded_stage_keys": [],
+        "deleted_orphan_stage_keys": [],
     }
 
 
 def _delete_harmonization_pipeline(db, pipeline_key: str) -> dict:
     _ensure_harmonization_pipeline_collections(db)
     pipeline = _get_harmonization_pipeline(db, pipeline_key)
-    stage_keys = list(db.aql.execute(
-        f"""
-        FOR r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
-          FILTER r.pipeline_key == @pipeline_key
-          FOR stage_key IN r.stage_keys || []
-            COLLECT unique_stage_key = stage_key
-            RETURN unique_stage_key
-        """,
-        bind_vars={"pipeline_key": pipeline_key},
-        max_runtime=120,
-    ))
     db.aql.execute(
         f"""
         FOR r IN {_HARMONIZATION_PIPELINE_RUN_COLLECTION}
@@ -2266,17 +2297,9 @@ def _delete_harmonization_pipeline(db, pipeline_key: str) -> dict:
     pipeline_collection = db.collection(_HARMONIZATION_PIPELINE_COLLECTION)
     if pipeline_collection.has(pipeline_key):
         pipeline_collection.delete(pipeline_key)
-    deleted_stage_keys = []
-    for stage_key in stage_keys:
-        if not _stage_is_referenced_by_any_run(db, stage_key):
-            _delete_harmonization_stage_artifacts(db, stage_key)
-            stage_collection = db.collection(_HARMONIZATION_STAGE_COLLECTION)
-            if stage_collection.has(stage_key):
-                stage_collection.delete(stage_key)
-            deleted_stage_keys.append(stage_key)
     return {
         "pipeline": pipeline,
-        "deleted_stage_keys": deleted_stage_keys,
+        "deleted_stage_keys": [],
     }
 
 
@@ -3674,6 +3697,7 @@ def _build_harmonization_pipeline_tree(
             "label": node["label"],
             "stage_index": node["stage_index"],
             "stats": node.get("stats"),
+            "is_missing": node.get("stats") is None,
             "pipeline_keys": pipeline_keys,
             "pipeline_count": len(pipeline_keys),
             "is_shared": len(pipeline_keys) > 1,
@@ -3734,6 +3758,8 @@ def _annotate_harmonization_pipeline_curation_status(
     pipelines: List[dict],
     current_curation_fingerprint: Any,
     current_assertion_fingerprint: Optional[str] = None,
+    available_stage_keys: Optional[set[str]] = None,
+    current_source_graph_fingerprint: Optional[str] = None,
 ) -> None:
     for pipeline in pipelines:
         rule_ids = pipeline.get("rule_ids") or []
@@ -3747,6 +3773,38 @@ def _annotate_harmonization_pipeline_curation_status(
             None,
         )
         latest_run = (pipeline.get("runs") or [None])[0]
+        expected_stage_keys = list(dict.fromkeys(
+            (latest_complete_run.get("stage_keys") or [
+                stage.get("_key")
+                for stage in latest_complete_run.get("stages") or []
+                if stage.get("_key")
+            ]) if latest_complete_run else []
+        ))
+        missing_stage_keys = (
+            [
+                stage_key for stage_key in expected_stage_keys
+                if stage_key not in available_stage_keys
+            ]
+            if available_stage_keys is not None
+            and latest_run is latest_complete_run
+            else []
+        )
+        completed_source_graph_fingerprint = (
+            latest_complete_run.get("source_graph_content_fingerprint")
+            if latest_complete_run else None
+        )
+        if latest_complete_run and not completed_source_graph_fingerprint:
+            completed_stages = latest_complete_run.get("stages") or []
+            completed_source_graph_fingerprint = next((
+                (stage.get("summary") or {}).get("source_graph_content_fingerprint")
+                for stage in completed_stages
+                if (stage.get("summary") or {}).get("source_graph_content_fingerprint")
+            ), None)
+        source_graph_changed = bool(
+            latest_complete_run
+            and current_source_graph_fingerprint
+            and completed_source_graph_fingerprint != current_source_graph_fingerprint
+        )
         completed_engine_version = (
             latest_complete_run.get("engine_version")
             if latest_complete_run
@@ -3792,6 +3850,12 @@ def _annotate_harmonization_pipeline_curation_status(
         pipeline["edge_curations_changed"] = edge_curations_changed
         pipeline["assertion_curations_changed"] = assertion_curations_changed
         pipeline["needs_curation_sync"] = needs_sync
+        pipeline["missing_stage_keys"] = missing_stage_keys
+        pipeline["missing_stage_count"] = len(missing_stage_keys)
+        pipeline["has_stage_integrity_failure"] = bool(missing_stage_keys)
+        pipeline["source_graph_changed"] = source_graph_changed
+        pipeline["completed_source_graph_fingerprint"] = completed_source_graph_fingerprint
+        pipeline["current_source_graph_fingerprint"] = current_source_graph_fingerprint
         pipeline["engine_version_changed"] = engine_version_changed
         pipeline["completed_engine_version"] = completed_engine_version
         pipeline["current_engine_version"] = _HARMONIZATION_ENGINE_VERSION
@@ -3810,6 +3874,12 @@ def _annotate_harmonization_pipeline_curation_status(
         elif latest_complete_run is None:
             pipeline["run_button_label"] = "Run pipeline"
             pipeline["run_action_kind"] = "run"
+        elif missing_stage_keys:
+            pipeline["run_button_label"] = "Repair pipeline"
+            pipeline["run_action_kind"] = "repair"
+        elif source_graph_changed:
+            pipeline["run_button_label"] = "Re-run pipeline"
+            pipeline["run_action_kind"] = "rebuild"
         elif engine_version_changed:
             pipeline["run_button_label"] = "Re-run pipeline"
             pipeline["run_action_kind"] = "rebuild"
@@ -3918,7 +3988,7 @@ def _list_harmonization_stage_overview_stats(
         return []
     unique_stage_keys = list(dict.fromkeys(stage_keys or []))
     if unique_stage_keys:
-        stage_filter = "FILTER s._key IN @stage_keys"
+        stage_filter = 'FILTER s._key IN @stage_keys AND s.status == "complete"'
         bind_vars = {"limit": max(limit, len(unique_stage_keys)), "stage_keys": unique_stage_keys}
     else:
         stage_filter = "FILTER s.status == \"complete\""
@@ -4502,6 +4572,13 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
             "status": "running",
         })
         graph_fingerprint = _harmonization_graph_fingerprint(db)
+        run_collection.update({
+            "_key": run_key,
+            "source_graph_fingerprint": graph_fingerprint.get("source_graph_fingerprint"),
+            "source_graph_content_fingerprint": graph_fingerprint.get(
+                "source_graph_content_fingerprint"
+            ),
+        })
         stage_docs = []
         mass_values_cache = {}
         def mass_values_provider():
@@ -4690,18 +4767,31 @@ def _load_harmonization_pipeline_workbench() -> dict:
         _ensure_harmonization_pipeline_collections(db)
         pipelines = _list_harmonization_pipelines()
         curation_state = _load_metabolite_edge_removal_curations()
-        _annotate_harmonization_pipeline_curation_status(
-            pipelines,
-            curation_state,
-            curation_state["assertion_fingerprint"],
-        )
-        _annotate_harmonization_pipeline_run_progress(pipelines, jobs)
         pipeline_stage_stats = _list_harmonization_pipeline_stage_overview_stats(
             pipelines,
             curation_state,
             include_distribution=False,
             include_assertion_matrix=False,
         )
+        available_stage_keys = {
+            stage.get("_key")
+            for pipeline_stats in pipeline_stage_stats
+            for stage in pipeline_stats.get("stages") or []
+            if stage.get("_key")
+        }
+        current_graph_fingerprint = (
+            None if active_jobs else _harmonization_graph_fingerprint(db)
+        )
+        _annotate_harmonization_pipeline_curation_status(
+            pipelines,
+            curation_state,
+            curation_state["assertion_fingerprint"],
+            available_stage_keys,
+            (current_graph_fingerprint or {}).get(
+                "source_graph_content_fingerprint"
+            ),
+        )
+        _annotate_harmonization_pipeline_run_progress(pipelines, jobs)
         return {
             "available_rules": _METABOLITE_HARMONIZATION_RULES,
             "pipelines": pipelines,
@@ -5014,6 +5104,27 @@ def _with_mw_adjudications(validation: dict, adjudication_state: Optional[dict])
     normalized = _with_mw_finding_metadata(validation)
     decisions = (adjudication_state or {}).get("decisions") or []
 
+    def decision_matches_evidence(decision: dict, finding: dict) -> bool:
+        observed = decision.get("observed_evidence_fingerprint")
+        if observed == finding.get("evidence_fingerprint"):
+            return True
+        if observed == finding.get("legacy_evidence_fingerprint"):
+            return True
+        # Acceptances created from pre-fingerprint stage payloads used a
+        # deterministic compatibility fingerprint. Reconstruct that exact
+        # version from the saved current finding so a format migration alone
+        # does not make scientifically unchanged evidence stale.
+        if not any(
+            key in finding
+            for key in (
+                "mass_summaries", "channel_results", "component_matches",
+                "member_mass_examples",
+            )
+        ):
+            return False
+        legacy = _legacy_mw_finding_metadata(validation, finding)
+        return observed == legacy.get("evidence_fingerprint")
+
     def with_adjudication(finding: dict) -> dict:
         members = set(finding.get("member_ids") or [])
         matching = [
@@ -5025,8 +5136,7 @@ def _with_mw_adjudications(validation: dict, adjudication_state: Optional[dict])
         if decision and decision.get("action") == "accept_mw_discrepancy":
             review_status = (
                 "accepted"
-                if decision.get("observed_evidence_fingerprint")
-                    == finding.get("evidence_fingerprint")
+                if decision_matches_evidence(decision, finding)
                 else "stale"
             )
         return {
@@ -5045,8 +5155,18 @@ def _with_mw_adjudications(validation: dict, adjudication_state: Optional[dict])
     ]
     normalized["warnings"] = warnings
     has_full_finding_index = isinstance(normalized.get("finding_index"), list)
+    warnings_by_finding_id = {
+        finding.get("finding_id"): finding
+        for finding in warnings
+        if finding.get("finding_id")
+    }
     counted_findings = (
-        [with_adjudication(finding) for finding in normalized["finding_index"]]
+        [
+            with_adjudication(
+                warnings_by_finding_id.get(finding.get("finding_id"), finding)
+            )
+            for finding in normalized["finding_index"]
+        ]
         if has_full_finding_index else warnings
     )
     if has_full_finding_index:
@@ -6342,32 +6462,33 @@ def _update_metabolite_snapshot_job(job_id: str, **updates) -> None:
 def _run_metabolite_snapshot_job(job_id: str, action: str, payload: dict) -> None:
     _update_metabolite_snapshot_job(job_id, status="running", started_at=datetime.now(timezone.utc).isoformat())
     try:
-        if action == "run_pipeline":
-            run = _run_harmonization_pipeline(payload["pipeline_key"])
-            _update_metabolite_snapshot_job(
-                job_id,
-                status="complete",
-                completed_at=datetime.now(timezone.utc).isoformat(),
-                pipeline_key=payload["pipeline_key"],
-                run_key=run.get("_key"),
-                stage_keys=run.get("stage_keys") or [],
-                message=f"Completed pipeline {run.get('pipeline_name') or payload['pipeline_key']}",
-            )
-        elif action == "delete_pipeline":
-            result = _delete_harmonization_pipeline(get_db("metabolite_harmonization"), payload["pipeline_key"])
-            _update_metabolite_snapshot_job(
-                job_id,
-                status="complete",
-                completed_at=datetime.now(timezone.utc).isoformat(),
-                pipeline_key=payload["pipeline_key"],
-                stage_keys=result.get("deleted_stage_keys") or [],
-                message=(
-                    f"Deleted pipeline {result.get('pipeline', {}).get('name') or payload['pipeline_key']} "
-                    f"and {len(result.get('deleted_stage_keys') or [])} unreferenced stages"
-                ),
-            )
-        else:
-            raise ValueError(f"Unknown harmonization job action: {action}")
+        # Stage snapshots are shared across pipelines. Keep all mutations in
+        # one process-wide critical section so two jobs cannot materialize or
+        # retire the same deterministic stage concurrently.
+        with _harmonization_pipeline_mutation_lock:
+            if action == "run_pipeline":
+                run = _run_harmonization_pipeline(payload["pipeline_key"])
+                _update_metabolite_snapshot_job(
+                    job_id,
+                    status="complete",
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                    pipeline_key=payload["pipeline_key"],
+                    run_key=run.get("_key"),
+                    stage_keys=run.get("stage_keys") or [],
+                    message=f"Completed pipeline {run.get('pipeline_name') or payload['pipeline_key']}",
+                )
+            elif action == "delete_pipeline":
+                result = _delete_harmonization_pipeline(get_db("metabolite_harmonization"), payload["pipeline_key"])
+                _update_metabolite_snapshot_job(
+                    job_id,
+                    status="complete",
+                    completed_at=datetime.now(timezone.utc).isoformat(),
+                    pipeline_key=payload["pipeline_key"],
+                    stage_keys=result.get("deleted_stage_keys") or [],
+                    message=f"Deleted pipeline {result.get('pipeline', {}).get('name') or payload['pipeline_key']}",
+                )
+            else:
+                raise ValueError(f"Unknown harmonization job action: {action}")
     except Exception as exc:
         _update_metabolite_snapshot_job(
             job_id,
@@ -7004,15 +7125,24 @@ def _build_harmonization_stage_mw_validation(
     review_warning_count = sum(item["severity"] == "warning" for item in warnings)
     finding_index = [
         {
-            key: item.get(key)
-            for key in (
+            **{
+                key: item.get(key)
+                for key in (
                 "finding_id",
                 "anchor_id",
                 "member_ids",
                 "evidence_fingerprint",
                 "evidence_fingerprint_version",
                 "severity",
-            )
+                )
+            },
+            "legacy_evidence_fingerprint": _legacy_mw_finding_metadata(
+                {
+                    "version": MW_VALIDATION_VERSION,
+                    "threshold": threshold,
+                },
+                item,
+            )["evidence_fingerprint"],
         }
         for item in warnings
     ]
