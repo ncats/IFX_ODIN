@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Dict, Iterable, List
@@ -303,6 +304,11 @@ _HARMONIZATION_RECONCILIATION_RETRY_SECONDS = 30
 _harmonization_reconciliation_lock = threading.Lock()
 _harmonization_reconciliation_last_attempt = 0.0
 _harmonization_pipeline_mutation_lock = threading.Lock()
+_HARMONIZATION_CURATION_CACHE_TTL_SECONDS = 30
+_harmonization_curation_cache_lock = threading.Lock()
+_harmonization_curation_refresh_lock = threading.Lock()
+_harmonization_curation_cache: dict[str, dict] = {}
+_harmonization_curation_cache_generation = 0
 _HARMONIZATION_STAGE_COLLECTION = "HarmonizationStage"
 _HARMONIZED_METABOLITE_COLLECTION = "HarmonizedMetabolite"
 _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION = "HarmonizedMetaboliteMemberEdge"
@@ -1012,7 +1018,17 @@ def _metabolite_record_property_snapshot_state(snapshot) -> dict:
     )
 
 
-def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> dict:
+def _invalidate_harmonization_curation_cache() -> None:
+    global _harmonization_curation_cache_generation
+    with _harmonization_curation_cache_lock:
+        _harmonization_curation_cache.clear()
+        _harmonization_curation_cache_generation += 1
+
+
+def _resolve_metabolite_curations(
+    storage=None,
+    prefix: Optional[str] = None,
+) -> dict:
     """Resolve the typed metabolite curation streams.
 
     The returned state includes graph-specific decisions, general record-property
@@ -1025,17 +1041,35 @@ def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> di
         if not _object_storage_credentials:
             raise RuntimeError("Object-storage credentials are required to load metabolite curations")
         storage = _storage_from_credentials(_object_storage_credentials, use_internal_url=False)
-    edge_snapshot = resolve_curation_type(storage, METABOLITE_EQUIVALENCE_EDGES, allow_missing=True)
-    assertion_snapshot = resolve_curation_type(storage, METABOLITE_EXPECTED_CLIQUES, allow_missing=True)
-    suppression_snapshot = resolve_curation_type(
-        storage, METABOLITE_RECORD_SUPPRESSIONS, allow_missing=True
+    curation_types = (
+        METABOLITE_EQUIVALENCE_EDGES,
+        METABOLITE_EXPECTED_CLIQUES,
+        METABOLITE_RECORD_SUPPRESSIONS,
+        METABOLITE_RECORD_PROPERTIES,
+        CHEBI_RECORD_PROPERTIES,
     )
-    record_property_snapshot = resolve_curation_type(
-        storage, METABOLITE_RECORD_PROPERTIES, allow_missing=True
-    )
-    chebi_record_property_snapshot = resolve_curation_type(
-        storage, CHEBI_RECORD_PROPERTIES, allow_missing=True
-    )
+    # Each immutable curation stream has its own manifest and batch chain. Read
+    # the independent streams concurrently so a cold workbench request pays one
+    # object-storage round trip sequence rather than five in series.
+    with ThreadPoolExecutor(max_workers=len(curation_types)) as executor:
+        futures = {
+            curation_type: executor.submit(
+                resolve_curation_type,
+                storage,
+                curation_type,
+                allow_missing=True,
+            )
+            for curation_type in curation_types
+        }
+        snapshots = {
+            curation_type: future.result()
+            for curation_type, future in futures.items()
+        }
+    edge_snapshot = snapshots[METABOLITE_EQUIVALENCE_EDGES]
+    assertion_snapshot = snapshots[METABOLITE_EXPECTED_CLIQUES]
+    suppression_snapshot = snapshots[METABOLITE_RECORD_SUPPRESSIONS]
+    record_property_snapshot = snapshots[METABOLITE_RECORD_PROPERTIES]
+    chebi_record_property_snapshot = snapshots[CHEBI_RECORD_PROPERTIES]
     record_property_state = _metabolite_record_property_snapshot_state(
         record_property_snapshot
     )
@@ -1117,7 +1151,7 @@ def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> di
         CHEBI_RECORD_PROPERTIES: chebi_record_property_state["fingerprint"],
     })
 
-    return {
+    result = {
         "pairs": pairs,
         "pair_states": pair_states,
         "pair_decisions": pair_decisions,
@@ -1152,11 +1186,85 @@ def _load_metabolite_curations(storage=None, prefix: Optional[str] = None) -> di
         "suppression_state_error": None,
         "prefix": f"s3://{storage.bucket}/curations/v2/",
     }
+    return result
 
 
-def _load_metabolite_edge_removal_curations(storage=None, prefix: Optional[str] = None) -> dict:
+def _load_metabolite_curations(
+    storage=None,
+    prefix: Optional[str] = None,
+    force_refresh: bool = False,
+) -> dict:
+    if storage is not None:
+        return _resolve_metabolite_curations(storage=storage, prefix=prefix)
+    with _harmonization_curation_cache_lock:
+        cache_generation = _harmonization_curation_cache_generation
+    if not force_refresh:
+        with _harmonization_curation_cache_lock:
+            cached = _harmonization_curation_cache.get("metabolite_curations")
+            if cached and cached["expires_at"] > time.monotonic():
+                return cached["value"]
+        if cached:
+            # A workbench read may use the last successfully resolved immutable
+            # snapshot while one background thread refreshes it. This prevents
+            # the polling UI from stalling every time the short TTL expires.
+            if _harmonization_curation_refresh_lock.acquire(blocking=False):
+                def refresh_cache() -> None:
+                    try:
+                        result = _resolve_metabolite_curations(prefix=prefix)
+                        with _harmonization_curation_cache_lock:
+                            if (
+                                cache_generation
+                                == _harmonization_curation_cache_generation
+                            ):
+                                _harmonization_curation_cache["metabolite_curations"] = {
+                                    "value": result,
+                                    "expires_at": (
+                                        time.monotonic()
+                                        + _HARMONIZATION_CURATION_CACHE_TTL_SECONDS
+                                    ),
+                                }
+                    except Exception as exc:
+                        print(f"Warning: could not refresh metabolite curations: {exc}")
+                    finally:
+                        _harmonization_curation_refresh_lock.release()
+
+                threading.Thread(
+                    target=refresh_cache,
+                    name="metabolite-curation-cache-refresh",
+                    daemon=True,
+                ).start()
+            return cached["value"]
+    # Only one request refreshes the remote immutable snapshots at a time.
+    with _harmonization_curation_refresh_lock:
+        if not force_refresh:
+            with _harmonization_curation_cache_lock:
+                cached = _harmonization_curation_cache.get("metabolite_curations")
+                if cached and cached["expires_at"] > time.monotonic():
+                    return cached["value"]
+        result = _resolve_metabolite_curations(prefix=prefix)
+        with _harmonization_curation_cache_lock:
+            if cache_generation == _harmonization_curation_cache_generation:
+                _harmonization_curation_cache["metabolite_curations"] = {
+                    "value": result,
+                    "expires_at": (
+                        time.monotonic()
+                        + _HARMONIZATION_CURATION_CACHE_TTL_SECONDS
+                    ),
+                }
+        return result
+
+
+def _load_metabolite_edge_removal_curations(
+    storage=None,
+    prefix: Optional[str] = None,
+    force_refresh: bool = False,
+) -> dict:
     """Compatibility wrapper for callers using the historical private name."""
-    return _load_metabolite_curations(storage=storage, prefix=prefix)
+    return _load_metabolite_curations(
+        storage=storage,
+        prefix=prefix,
+        force_refresh=force_refresh,
+    )
 
 
 def _curation_cart_storage():
@@ -3999,7 +4107,43 @@ def _list_harmonization_stage_overview_stats(
           {stage_filter}
           SORT s.created_at DESC
           LIMIT @limit
-          RETURN KEEP(s, "_key", "name", "created_at", "stage_index", "rule_ids", "summary", "validation")
+          LET mw = s.validation.mw_spread
+          LET overview_mw = (
+            IS_OBJECT(mw) AND IS_ARRAY(mw.finding_index)
+            ? MERGE(
+                KEEP(
+                  mw,
+                  "computed", "warning_count", "error_count",
+                  "review_warning_count", "accepted_count",
+                  "stale_acceptance_count"
+                ),
+                {{
+                  finding_index: (
+                    FOR finding IN mw.finding_index
+                      RETURN KEEP(
+                        finding,
+                        "finding_id", "member_ids", "severity",
+                        "evidence_fingerprint", "legacy_evidence_fingerprint"
+                      )
+                  )
+                }}
+              )
+            : mw
+          )
+          RETURN MERGE(
+            KEEP(s, "_key", "name", "created_at", "stage_index", "rule_ids", "summary"),
+            {{
+              validation: {{
+                mw_spread: overview_mw,
+                denylist_still_merged: UNSET(
+                  s.validation.denylist_still_merged || {{}}, "warnings"
+                ),
+                generic_structure_consistency: UNSET(
+                  s.validation.generic_structure_consistency || {{}}, "warnings"
+                )
+              }}
+            }}
+          )
         """,
         bind_vars=bind_vars,
         max_runtime=120,
@@ -4055,7 +4199,7 @@ def _list_harmonization_stage_overview_stats(
     for stage in stages:
         summary = stage.get("summary") or {}
         distribution = distribution_by_stage.get(stage["_key"], {})
-        mw_validation = _harmonization_stage_mw_validation_from_doc(
+        mw_validation = _mw_validation_overview_from_doc(
             stage, mw_adjudication_state
         )
         denylist_validation = _harmonization_stage_denylist_validation_from_doc(stage)
@@ -4236,8 +4380,8 @@ def _load_expected_clique_assertion_results(
         f"""
         FOR chunk IN {_HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION}
           FILTER chunk.stage_key IN @stage_keys
-          FOR member_id IN chunk.identifier_ids || []
-            FILTER member_id IN @member_ids
+          FOR member_id IN @member_ids
+            FILTER member_id IN (chunk.identifier_ids || [])
             RETURN DISTINCT {{stage_key: chunk.stage_key, member_id: member_id}}
         """,
         bind_vars={"stage_keys": ordered_stage_keys, "member_ids": member_ids},
@@ -4245,18 +4389,18 @@ def _load_expected_clique_assertion_results(
     ))
     clique_rows = list(db.aql.execute(
         f"""
-        FOR edge IN {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
-          FILTER edge.stage_key IN @stage_keys
-          FILTER edge.member_id IN @member_ids
-          LET clique = DOCUMENT(edge._from)
-          RETURN {{
-            stage_key: edge.stage_key,
-            member_id: edge.member_id,
-            clique_id: edge._from,
-            rank_by_size: clique.rank_by_size,
-            clique_size: clique.size,
-            representative_id: clique.representative_id
-          }}
+        FOR member IN MetaboliteIdentifier
+          FILTER member.id IN @member_ids
+          FOR clique, edge IN INBOUND member {_HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION}
+            FILTER edge.stage_key IN @stage_keys
+            RETURN {{
+              stage_key: edge.stage_key,
+              member_id: member.id,
+              clique_id: clique._id,
+              rank_by_size: clique.rank_by_size,
+              clique_size: clique.size,
+              representative_id: clique.representative_id
+            }}
         """,
         bind_vars={"stage_keys": ordered_stage_keys, "member_ids": member_ids},
         max_runtime=120,
@@ -4597,7 +4741,7 @@ def _run_harmonization_pipeline(pipeline_key: str) -> dict:
         normalized_rule_ids = pipeline.get("rule_ids") or []
         normalized_rule_parameters = pipeline.get("rule_parameters") or {}
         curation_state = (
-            _load_metabolite_edge_removal_curations()
+            _load_metabolite_edge_removal_curations(force_refresh=True)
             if (
                 "apply_curations" in normalized_rule_ids
                 or "force_expected_clique_assertions" in normalized_rule_ids
@@ -5072,6 +5216,13 @@ def _with_mw_finding_metadata(validation: dict) -> dict:
 
 
 def _load_metabolite_mw_adjudications(storage=None) -> dict:
+    use_cache = storage is None
+    if use_cache:
+        with _harmonization_curation_cache_lock:
+            cache_generation = _harmonization_curation_cache_generation
+            cached = _harmonization_curation_cache.get("mw_adjudications")
+            if cached and cached["expires_at"] > time.monotonic():
+                return cached["value"]
     if storage is None:
         storage = _curation_cart_storage()
     snapshot = resolve_curation_type(
@@ -5088,7 +5239,18 @@ def _load_metabolite_mw_adjudications(storage=None) -> dict:
             "published_at": resolved.published_at,
             "published_by": resolved.published_by,
         })
-    return {"snapshot": snapshot.metadata(), "decisions": decisions}
+    result = {"snapshot": snapshot.metadata(), "decisions": decisions}
+    if use_cache:
+        with _harmonization_curation_cache_lock:
+            if cache_generation == _harmonization_curation_cache_generation:
+                _harmonization_curation_cache["mw_adjudications"] = {
+                    "value": result,
+                    "expires_at": (
+                        time.monotonic()
+                        + _HARMONIZATION_CURATION_CACHE_TTL_SECONDS
+                    ),
+                }
+    return result
 
 
 def _mw_adjudication_matches_members(decision: dict, member_ids: Iterable[str]) -> bool:
@@ -5100,57 +5262,108 @@ def _mw_adjudication_matches_members(decision: dict, member_ids: Iterable[str]) 
     return bool(members.intersection(decision.get("observed_member_ids") or []))
 
 
+def _mw_decision_matches_evidence(
+    validation: dict,
+    decision: dict,
+    finding: dict,
+) -> bool:
+    observed = decision.get("observed_evidence_fingerprint")
+    if observed == finding.get("evidence_fingerprint"):
+        return True
+    if observed == finding.get("legacy_evidence_fingerprint"):
+        return True
+    if not any(
+        key in finding
+        for key in (
+            "mass_summaries", "channel_results", "component_matches",
+            "member_mass_examples",
+        )
+    ):
+        return False
+    legacy = _legacy_mw_finding_metadata(validation, finding)
+    return observed == legacy.get("evidence_fingerprint")
+
+
+def _mw_finding_with_adjudication(
+    validation: dict,
+    finding: dict,
+    decisions: List[dict],
+) -> dict:
+    members = set(finding.get("member_ids") or [])
+    decision = next((
+        decision for decision in decisions
+        if _mw_adjudication_matches_members(decision, members)
+    ), None)
+    review_status = "unresolved"
+    if decision and decision.get("action") == "accept_mw_discrepancy":
+        review_status = (
+            "accepted"
+            if _mw_decision_matches_evidence(validation, decision, finding)
+            else "stale"
+        )
+    return {
+        **finding,
+        "detected_severity": finding.get("severity", "error"),
+        "effective_severity": (
+            "warning" if review_status == "accepted" else finding.get("severity", "error")
+        ),
+        "review_status": review_status,
+        "adjudication": decision,
+    }
+
+
+def _mw_validation_overview_from_doc(
+    stage: dict,
+    adjudication_state: Optional[dict],
+) -> dict:
+    """Compute card counts without formatting full finding evidence."""
+    validation = (stage.get("validation") or {}).get("mw_spread")
+    if not isinstance(validation, dict):
+        return {"computed": False}
+    finding_index = validation.get("finding_index")
+    if not isinstance(finding_index, list):
+        # Legacy stages did not persist a complete finding index. Their scalar
+        # totals remain the only complete overview available.
+        return {
+            **validation,
+            "accepted_count": validation.get("accepted_count", 0),
+            "stale_acceptance_count": validation.get("stale_acceptance_count", 0),
+        }
+    decisions = (adjudication_state or {}).get("decisions") or []
+    findings = [
+        _mw_finding_with_adjudication(validation, finding, decisions)
+        for finding in finding_index
+    ]
+    detected_error_count = sum(
+        finding.get("detected_severity") == "error" for finding in findings
+    )
+    accepted_error_count = sum(
+        finding.get("detected_severity") == "error"
+        and finding.get("review_status") == "accepted"
+        for finding in findings
+    )
+    return {
+        "computed": validation.get("computed", False),
+        "warning_count": validation.get("warning_count", len(findings)),
+        "error_count": max(0, detected_error_count - accepted_error_count),
+        "review_warning_count": sum(
+            finding.get("detected_severity") == "warning" for finding in findings
+        ),
+        "accepted_count": sum(
+            finding.get("review_status") == "accepted" for finding in findings
+        ),
+        "stale_acceptance_count": sum(
+            finding.get("review_status") == "stale" for finding in findings
+        ),
+    }
+
+
 def _with_mw_adjudications(validation: dict, adjudication_state: Optional[dict]) -> dict:
     normalized = _with_mw_finding_metadata(validation)
     decisions = (adjudication_state or {}).get("decisions") or []
 
-    def decision_matches_evidence(decision: dict, finding: dict) -> bool:
-        observed = decision.get("observed_evidence_fingerprint")
-        if observed == finding.get("evidence_fingerprint"):
-            return True
-        if observed == finding.get("legacy_evidence_fingerprint"):
-            return True
-        # Acceptances created from pre-fingerprint stage payloads used a
-        # deterministic compatibility fingerprint. Reconstruct that exact
-        # version from the saved current finding so a format migration alone
-        # does not make scientifically unchanged evidence stale.
-        if not any(
-            key in finding
-            for key in (
-                "mass_summaries", "channel_results", "component_matches",
-                "member_mass_examples",
-            )
-        ):
-            return False
-        legacy = _legacy_mw_finding_metadata(validation, finding)
-        return observed == legacy.get("evidence_fingerprint")
-
-    def with_adjudication(finding: dict) -> dict:
-        members = set(finding.get("member_ids") or [])
-        matching = [
-            decision for decision in decisions
-            if _mw_adjudication_matches_members(decision, members)
-        ]
-        decision = matching[0] if matching else None
-        review_status = "unresolved"
-        if decision and decision.get("action") == "accept_mw_discrepancy":
-            review_status = (
-                "accepted"
-                if decision_matches_evidence(decision, finding)
-                else "stale"
-            )
-        return {
-            **finding,
-            "detected_severity": finding.get("severity", "error"),
-            "effective_severity": (
-                "warning" if review_status == "accepted" else finding.get("severity", "error")
-            ),
-            "review_status": review_status,
-            "adjudication": decision,
-        }
-
     warnings = [
-        with_adjudication(warning)
+        _mw_finding_with_adjudication(validation, warning, decisions)
         for warning in normalized.get("warnings") or []
     ]
     normalized["warnings"] = warnings
@@ -5162,8 +5375,10 @@ def _with_mw_adjudications(validation: dict, adjudication_state: Optional[dict])
     }
     counted_findings = (
         [
-            with_adjudication(
-                warnings_by_finding_id.get(finding.get("finding_id"), finding)
+            _mw_finding_with_adjudication(
+                validation,
+                warnings_by_finding_id.get(finding.get("finding_id"), finding),
+                decisions,
             )
             for finding in normalized["finding_index"]
         ]
@@ -9956,6 +10171,7 @@ async def ramp_id_qa_publish_curation_cart(request: Request):
                     batch_name,
                     str(payload.get("description") or ""),
                 )
+                _invalidate_harmonization_curation_cache()
             except Exception as exc:
                 if not published:
                     raise

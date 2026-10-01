@@ -256,6 +256,85 @@ def test_mw_adjudication_counts_accepted_finding_outside_display_sample():
     assert result["warnings"] == []
 
 
+def test_mw_overview_counts_from_lightweight_finding_index():
+    findings = [
+        {
+            "finding_id": "mw-accepted",
+            "member_ids": ["CHEBI:1", "HMDB:1"],
+            "evidence_fingerprint": "current-accepted",
+            "legacy_evidence_fingerprint": "legacy-accepted",
+            "severity": "error",
+        },
+        {
+            "finding_id": "mw-stale",
+            "member_ids": ["CHEBI:2", "HMDB:2"],
+            "evidence_fingerprint": "current-stale",
+            "severity": "error",
+        },
+        {
+            "finding_id": "mw-warning",
+            "member_ids": ["CHEBI:3", "HMDB:3"],
+            "evidence_fingerprint": "current-warning",
+            "severity": "warning",
+        },
+    ]
+    decisions = [
+        {
+            "action": "accept_mw_discrepancy",
+            "target": {"anchor_id": "CHEBI:1"},
+            "observed_member_ids": findings[0]["member_ids"],
+            "observed_evidence_fingerprint": "legacy-accepted",
+        },
+        {
+            "action": "accept_mw_discrepancy",
+            "target": {"anchor_id": "CHEBI:2"},
+            "observed_member_ids": findings[1]["member_ids"],
+            "observed_evidence_fingerprint": "old-stale",
+        },
+    ]
+
+    result = qa_app._mw_validation_overview_from_doc(
+        {"validation": {"mw_spread": {
+            "computed": True,
+            "finding_index": findings,
+        }}},
+        {"decisions": decisions},
+    )
+
+    assert result == {
+        "computed": True,
+        "warning_count": 3,
+        "error_count": 1,
+        "review_warning_count": 1,
+        "accepted_count": 1,
+        "stale_acceptance_count": 1,
+    }
+
+
+def test_metabolite_curation_cache_can_be_invalidated_and_forced(monkeypatch):
+    qa_app._invalidate_harmonization_curation_cache()
+    resolved = []
+
+    def fake_resolve(**_kwargs):
+        value = {"revision": len(resolved) + 1}
+        resolved.append(value)
+        return value
+
+    monkeypatch.setattr(qa_app, "_resolve_metabolite_curations", fake_resolve)
+
+    first = qa_app._load_metabolite_curations()
+    assert qa_app._load_metabolite_curations() is first
+    assert len(resolved) == 1
+
+    forced = qa_app._load_metabolite_curations(force_refresh=True)
+    assert forced["revision"] == 2
+    assert len(resolved) == 2
+
+    qa_app._invalidate_harmonization_curation_cache()
+    assert qa_app._load_metabolite_curations()["revision"] == 3
+    qa_app._invalidate_harmonization_curation_cache()
+
+
 def test_reaccepting_after_anchor_removal_uses_current_anchor(monkeypatch):
     finding = {
         "finding_id": "mw-abcdef1234567890abcdef12",
@@ -3834,7 +3913,9 @@ def test_stage_overview_exposes_generic_structure_validation_counts(monkeypatch)
     }
 
     class FakeAql:
-        def execute(self, _query, **_kwargs):
+        def execute(self, query, **_kwargs):
+            assert 'UNSET(\n                  s.validation.denylist_still_merged' in query
+            assert '"legacy_evidence_fingerprint"' in query
             return [stage]
 
     class FakeDb:
@@ -3852,6 +3933,48 @@ def test_stage_overview_exposes_generic_structure_validation_counts(monkeypatch)
     assert overview["generic_structure_rule_enabled"] is True
     assert overview["generic_structure_failure_count"] == 3
     assert overview["generic_structure_gap_count"] == 7
+
+
+def test_assertion_lookup_uses_target_edge_index_instead_of_member_edge_scan():
+    queries = []
+
+    class FakeAql:
+        def execute(self, query, **_kwargs):
+            queries.append(query)
+            if "HarmonizationStageActiveIdentifierChunk" in query:
+                return [
+                    {"stage_key": "stage-1", "member_id": "CHEBI:1"},
+                    {"stage_key": "stage-1", "member_id": "HMDB:1"},
+                ]
+            return [
+                {
+                    "stage_key": "stage-1",
+                    "member_id": member_id,
+                    "clique_id": "HarmonizedMetabolite/shared-clique",
+                    "rank_by_size": 1,
+                    "clique_size": 2,
+                    "representative_id": "CHEBI:1",
+                }
+                for member_id in ("CHEBI:1", "HMDB:1")
+            ]
+
+    class FakeDb:
+        aql = FakeAql()
+
+    result = qa_app._load_expected_clique_assertion_results(
+        FakeDb(),
+        [{"assertion_id": "assertion-1", "member_ids": ["CHEBI:1", "HMDB:1"]}],
+        ["stage-1"],
+    )
+
+    assert "FOR member_id IN @member_ids" in queries[0]
+    assert (
+        "FOR clique, edge IN INBOUND member HarmonizedMetaboliteMemberEdge"
+        in queries[1]
+    )
+    assert "FOR edge IN HarmonizedMetaboliteMemberEdge" not in queries[1]
+    assert result["by_stage"]["stage-1"]["pass_count"] == 1
+    assert result["by_stage"]["stage-1"]["split_count"] == 0
 
 
 def test_requested_stage_overview_requires_complete_stage(monkeypatch):
