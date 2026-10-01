@@ -71,9 +71,55 @@
             The configured threshold was {{ "%.0f"|format(mw_validation_review.threshold_percent) }}%.
         </p>
         {% if finding.review_status == "stale" %}
-        <div class="inline-warning">
-            The reviewed clique membership or MW evidence has changed. Review the current finding and accept it again if the explanation still holds.
-        </div>
+        {% set change = finding.change_summary %}
+        <section class="inline-warning metabolite-mw-change-summary" aria-label="Changes since previous MW acceptance">
+            <h3>What changed</h3>
+            <p>
+                <strong>Membership:</strong>
+                {% if change.membership_changed %}
+                Changed — {{ change.added_member_ids|length }} added and {{ change.removed_member_ids|length }} removed.
+                {% else %}
+                Unchanged — {{ change.current_member_count }} IDs.
+                {% endif %}
+            </p>
+            {% if change.membership_changed %}
+            <details>
+                <summary>Membership changes</summary>
+                {% if change.added_member_ids %}<p><strong>Added:</strong> {% for identifier in change.added_member_ids %}<code>{{ identifier }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+                {% if change.removed_member_ids %}<p><strong>Removed:</strong> {% for identifier in change.removed_member_ids %}<code>{{ identifier }}</code>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+            </details>
+            {% endif %}
+            <p><strong>MW evidence:</strong>
+              {% if change.evidence_changed is none %}
+                Exact change unknown.
+              {% elif change.evidence_changed %}
+                Changed.
+              {% else %}
+                Unchanged.
+              {% endif %}
+            </p>
+            {% if not change.previous_evidence_available %}
+            <p>The previous exact MW evidence was not saved, so the individual mass changes cannot be shown for this legacy acceptance.</p>
+            {% else %}
+            {% if change.validator_changed %}<p>The validator version changed.</p>{% endif %}
+            {% if change.threshold_changed %}<p>The validation threshold changed.</p>{% endif %}
+            {% if change.added_mass_observations or change.removed_mass_observations %}
+            <details>
+                <summary>{{ change.added_mass_observations|length }} mass observation{{ "" if change.added_mass_observations|length == 1 else "s" }} added · {{ change.removed_mass_observations|length }} removed</summary>
+                {% if change.added_mass_observations %}<p><strong>Added:</strong> {% for item in change.added_mass_observations %}<code>{{ item.member_id }}</code> {{ item.channel }} {{ item.value }}{% if not loop.last %}; {% endif %}{% endfor %}</p>{% endif %}
+                {% if change.removed_mass_observations %}<p><strong>Removed:</strong> {% for item in change.removed_mass_observations %}<code>{{ item.member_id }}</code> {{ item.channel }} {{ item.value }}{% if not loop.last %}; {% endif %}{% endfor %}</p>{% endif %}
+            </details>
+            {% endif %}
+            {% if change.added_component_matches or change.removed_component_matches %}
+            <p>{{ change.added_component_matches|length }} component explanation{{ "" if change.added_component_matches|length == 1 else "s" }} added · {{ change.removed_component_matches|length }} removed.</p>
+            {% endif %}
+            {% if change.unexplained_evidence_change %}<p>The saved comparison fields are unchanged; another validator input changed.</p>{% endif %}
+            {% endif %}
+            <details>
+                <summary>Technical fingerprints</summary>
+                <p><strong>Previous:</strong> <code>{{ change.previous_evidence_fingerprint }}</code><br><strong>Current:</strong> <code>{{ change.current_evidence_fingerprint }}</code></p>
+            </details>
+        </section>
         {% endif %}
         <div class="metabolite-mw-review-layout">
             <div class="metabolite-mw-mass-panel">
@@ -151,6 +197,31 @@
                         <label><span>Why reopen this finding?</span><textarea rows="2" data-mw-adjudication-note required></textarea></label>
                         <button type="submit" class="btn">Queue reopened discrepancy</button>
                         <small>The accepted warning remains active until this draft is published.</small>
+                    </form>
+                </details>
+                {% elif finding.review_status == "stale" and finding.adjudication %}
+                {% if not finding.removed_supporting_ids %}
+                <form class="metabolite-mw-adjudication-form" data-mw-adjudication-form data-mw-keep-acceptance data-action="accept_mw_discrepancy"
+                      data-stage-key="{{ mw_validation_review.stage_key }}" data-finding-id="{{ finding.finding_id }}">
+                    <input type="hidden" data-mw-adjudication-reason value="{{ finding.adjudication.reason }}">
+                    <input type="hidden" data-mw-adjudication-supporting-ids value="{{ finding.reusable_supporting_ids|join(' ') }}">
+                    <textarea hidden data-mw-adjudication-note>{{ finding.adjudication.note }}</textarea>
+                    <button type="submit" class="btn btn-primary">Keep acceptance</button>
+                    <small>Queues the same explanation against the current evidence. It becomes active after publication.</small>
+                </form>
+                {% else %}
+                <div class="inline-warning">
+                    A previous supporting ID left the clique: {% for identifier in finding.removed_supporting_ids %}<code>{{ identifier }}</code>{% if not loop.last %}, {% endif %}{% endfor %}. Edit the explanation before accepting again.
+                </div>
+                {% endif %}
+                <details class="metabolite-mw-reopen-control">
+                    <summary>Edit explanation</summary>
+                    <form class="metabolite-mw-adjudication-form" data-mw-adjudication-form data-action="accept_mw_discrepancy"
+                          data-stage-key="{{ mw_validation_review.stage_key }}" data-finding-id="{{ finding.finding_id }}">
+                        <label><span>Reason</span><select data-mw-adjudication-reason required><option value="">Choose an explanation…</option>{% for option in mw_validation_review.reason_options %}<option value="{{ option.value }}"{% if option.value == finding.adjudication.reason %} selected{% endif %}>{{ option.label }}</option>{% endfor %}</select></label>
+                        <label><span>Supporting IDs (optional)</span><input data-mw-adjudication-supporting-ids value="{{ finding.reusable_supporting_ids|join(' ') }}"></label>
+                        <label><span>Why is this acceptable?</span><textarea rows="2" data-mw-adjudication-note required>{{ finding.adjudication.note }}</textarea></label>
+                        <button type="submit" class="btn">Queue updated acceptance</button>
                     </form>
                 </details>
                 {% else %}

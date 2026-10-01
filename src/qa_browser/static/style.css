@@ -2941,6 +2941,36 @@ tr.has-pending-changes > td:first-child {
     margin-bottom: 0.85rem;
 }
 
+.metabolite-mw-change-summary {
+    background: #fffbeb;
+    border: 1px solid #f59e0b;
+    border-radius: 10px;
+    color: #78350f;
+    margin-bottom: 1rem;
+    padding: 0.8rem 0.9rem;
+}
+
+.metabolite-mw-change-summary h3 {
+    font-size: 1rem;
+    margin: 0 0 0.55rem;
+}
+
+.metabolite-mw-change-summary p {
+    margin: 0.35rem 0;
+}
+
+.metabolite-mw-change-summary details {
+    margin-top: 0.45rem;
+}
+
+.metabolite-mw-adjudication-history + .metabolite-mw-adjudication-form,
+.metabolite-mw-adjudication-history + .inline-warning,
+.metabolite-mw-adjudication-card .metabolite-mw-reopen-control {
+    border-top: 1px solid var(--border);
+    margin-top: 0.8rem;
+    padding-top: 0.8rem;
+}
+
 .metabolite-mw-review-layout {
     align-items: start;
     display: grid;

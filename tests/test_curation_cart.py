@@ -174,6 +174,26 @@ def test_mw_adjudication_contract_supports_acceptance_and_reopening():
     assert reopened["action"] == "reopen_mw_discrepancy"
 
 
+def test_mw_adjudication_contract_accepts_optional_snapshot_and_rejects_bad_rows():
+    operation = mw_adjudication()
+    operation["observed_evidence_snapshot"] = {
+        "version": "mw-review-evidence-v1",
+        "validator_version": "component-aware-v1",
+        "threshold": "0.1",
+        "mass_observations": [
+            {"member_id": "CHEBI:1", "channel": "average", "value": "100"},
+        ],
+        "component_matches": [],
+    }
+
+    assert validate_operation(METABOLITE_MW_ADJUDICATIONS, operation) is operation
+
+    malformed = json.loads(json.dumps(operation))
+    malformed["observed_evidence_snapshot"]["mass_observations"][0]["member_id"] = "CHEBI:999"
+    with pytest.raises(ValueError, match="must belong to the finding"):
+        validate_operation(METABOLITE_MW_ADJUDICATIONS, malformed)
+
+
 def test_cart_autosaves_and_reloads_one_draft_per_curator_and_type():
     storage = FakeStorage()
 

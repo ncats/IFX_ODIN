@@ -360,7 +360,87 @@ def test_reaccepting_after_anchor_removal_uses_current_anchor(monkeypatch):
 
     assert operation["target"]["anchor_id"] == "HMDB:1"
     assert "superseded_anchor_ids" not in operation
+    assert operation["observed_evidence_snapshot"] == {
+        "version": "mw-review-evidence-v1",
+        "validator_version": None,
+        "threshold": None,
+        "mass_observations": [],
+        "component_matches": [],
+    }
     validate_operation(METABOLITE_MW_ADJUDICATIONS, operation)
+
+
+def test_mw_findings_sort_by_review_priority_then_spread_size_and_id():
+    warnings = [
+        {
+            "finding_id": "accepted",
+            "anchor_id": "CHEBI:4",
+            "member_ids": ["CHEBI:4"],
+            "evidence_fingerprint": "d" * 64,
+            "severity": "error",
+            "spread_percent": 90,
+            "size": 9,
+        },
+        {
+            "finding_id": "warning",
+            "anchor_id": "CHEBI:3",
+            "member_ids": ["CHEBI:3"],
+            "evidence_fingerprint": "c" * 64,
+            "severity": "warning",
+            "spread_percent": 80,
+            "size": 8,
+        },
+        {
+            "finding_id": "stale",
+            "anchor_id": "CHEBI:2",
+            "member_ids": ["CHEBI:2"],
+            "evidence_fingerprint": "b" * 64,
+            "severity": "error",
+            "spread_percent": 70,
+            "size": 7,
+        },
+        {
+            "finding_id": "error-low",
+            "anchor_id": "CHEBI:1",
+            "member_ids": ["CHEBI:1"],
+            "evidence_fingerprint": "a" * 64,
+            "severity": "error",
+            "spread_percent": 20,
+            "size": 2,
+        },
+        {
+            "finding_id": "error-high",
+            "anchor_id": "CHEBI:5",
+            "member_ids": ["CHEBI:5"],
+            "evidence_fingerprint": "e" * 64,
+            "severity": "error",
+            "spread_percent": 30,
+            "size": 1,
+        },
+    ]
+    decisions = [
+        {
+            "action": "accept_mw_discrepancy",
+            "target": {"anchor_id": "CHEBI:4"},
+            "observed_member_ids": ["CHEBI:4"],
+            "observed_evidence_fingerprint": "d" * 64,
+        },
+        {
+            "action": "accept_mw_discrepancy",
+            "target": {"anchor_id": "CHEBI:2"},
+            "observed_member_ids": ["CHEBI:2"],
+            "observed_evidence_fingerprint": "f" * 64,
+        },
+    ]
+
+    result = _with_mw_adjudications(
+        {"computed": True, "warnings": warnings},
+        {"decisions": decisions},
+    )
+
+    assert [finding["finding_id"] for finding in result["warnings"]] == [
+        "error-high", "error-low", "stale", "warning", "accepted",
+    ]
 
 
 def test_mw_history_preserves_stale_sibling_after_split_branch_is_accepted():
@@ -3258,6 +3338,70 @@ def test_full_page_mw_finding_panel_supports_acceptance_workflow():
     assert "/collection/ChemicalEntity/doc/CHEBI%3A1" in html
     assert "/collection/MetaboliteIdentifier/doc/CHEBI%3A1" in html
     assert "<details open>" not in html
+
+
+def test_stale_mw_finding_shows_change_summary_and_keep_acceptance_queue():
+    html = qa_app.templates.env.get_template("ramp_id_qa.html").render(
+        request={"scope": {"path": "/ramp-id-qa"}},
+        root_path="",
+        query_id="CHEBI:1 HMDB:1",
+        selected_snapshot_keys=["stage-1"],
+        denylist_pair_review=None,
+        denylist_review=None,
+        result=None,
+        overview=None,
+        error=None,
+        mw_validation_review={
+            "stage_key": "stage-1",
+            "stage_name": "Final",
+            "validator_version": "component-aware-v1",
+            "threshold_percent": 10,
+            "reason_options": [
+                {"value": "salt_or_counterion", "label": "Salt or counterion"},
+            ],
+            "finding": {
+                "finding_id": "mw-1234567890abcdef12345678",
+                "review_status": "stale",
+                "detected_severity": "error",
+                "spread_percent": 50,
+                "size": 2,
+                "mass_cluster_rows": [],
+                "mass_value_rows": [],
+                "mass_evidence_id_count": 0,
+                "component_matches": [],
+                "source_mass_observations": [],
+                "adjudication": {
+                    "reason": "salt_or_counterion",
+                    "supporting_ids": ["HMDB:1"],
+                    "note": "Reviewed salt form.",
+                    "observed_member_ids": ["CHEBI:1", "HMDB:1"],
+                    "published_at": "2026-09-30T13:56:19Z",
+                    "curation_batch_id": "batch-1",
+                },
+                "reusable_supporting_ids": ["HMDB:1"],
+                "removed_supporting_ids": [],
+                "change_summary": {
+                    "membership_changed": False,
+                    "current_member_count": 2,
+                    "added_member_ids": [],
+                    "removed_member_ids": [],
+                    "evidence_changed": True,
+                    "previous_evidence_available": False,
+                    "previous_evidence_fingerprint": "a" * 64,
+                    "current_evidence_fingerprint": "b" * 64,
+                },
+            },
+        },
+    )
+
+    assert "What changed" in html
+    assert "Unchanged — 2 IDs" in html
+    assert "previous exact MW evidence was not saved" in html
+    assert "Keep acceptance" in html
+    assert "data-mw-keep-acceptance" in html
+    assert "Edit explanation" in html
+    assert 'value="salt_or_counterion" selected' in html
+    assert "Reviewed salt form." in html
 
 
 def test_mw_finding_mass_rows_group_exact_values_and_sort_descending_by_channel():

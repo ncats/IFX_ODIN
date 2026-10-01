@@ -70,7 +70,9 @@ from src.shared.metabolite_mass_validation import (
     MW_VALIDATION_VERSION,
     assess_mass_profiles,
     cluster_mass_observations,
+    compare_mw_review_evidence,
     mass_validation_finding_metadata,
+    mw_review_evidence_snapshot,
 )
 from src.qa_browser.build_provenance import extract_build_inputs
 from src.qa_browser.disease_id_graph import (
@@ -892,6 +894,11 @@ def _metabolite_mw_adjudication_operation(
         },
         "observed_evidence_fingerprint": finding["evidence_fingerprint"],
         "observed_member_ids": member_ids,
+        "observed_evidence_snapshot": mw_review_evidence_snapshot(
+            finding,
+            validator_version=validation.get("version"),
+            threshold=validation.get("threshold"),
+        ),
         "note": str(note or "").strip(),
     }
     if action == "accept_mw_discrepancy":
@@ -5358,6 +5365,25 @@ def _mw_validation_overview_from_doc(
     }
 
 
+def _mw_review_sort_key(finding: dict) -> tuple:
+    review_status = finding.get("review_status")
+    severity = finding.get("detected_severity") or finding.get("severity", "error")
+    if review_status == "accepted":
+        priority = 3
+    elif review_status == "stale":
+        priority = 1
+    elif severity == "warning":
+        priority = 2
+    else:
+        priority = 0
+    return (
+        priority,
+        -(finding.get("spread_percent") or 0),
+        -(finding.get("size") or 0),
+        finding.get("finding_id") or "",
+    )
+
+
 def _with_mw_adjudications(validation: dict, adjudication_state: Optional[dict]) -> dict:
     normalized = _with_mw_finding_metadata(validation)
     decisions = (adjudication_state or {}).get("decisions") or []
@@ -5366,6 +5392,7 @@ def _with_mw_adjudications(validation: dict, adjudication_state: Optional[dict])
         _mw_finding_with_adjudication(validation, warning, decisions)
         for warning in normalized.get("warnings") or []
     ]
+    warnings.sort(key=_mw_review_sort_key)
     normalized["warnings"] = warnings
     has_full_finding_index = isinstance(normalized.get("finding_index"), list)
     warnings_by_finding_id = {
@@ -5444,6 +5471,33 @@ def _build_mw_validation_review(stage_key: str, finding_id: str) -> dict:
             for identifier in row["identifiers"]
         }),
     }
+    adjudication = finding.get("adjudication") or {}
+    current_snapshot = mw_review_evidence_snapshot(
+        finding,
+        validator_version=validation.get("version"),
+        threshold=validation.get("threshold"),
+    )
+    if finding.get("review_status") == "stale" and adjudication:
+        finding["change_summary"] = compare_mw_review_evidence(
+            current_member_ids=finding.get("member_ids") or [],
+            current_snapshot=current_snapshot,
+            current_fingerprint=finding.get("evidence_fingerprint") or "",
+            previous_member_ids=adjudication.get("observed_member_ids") or [],
+            previous_snapshot=adjudication.get("observed_evidence_snapshot"),
+            previous_fingerprint=(
+                adjudication.get("observed_evidence_fingerprint") or ""
+            ),
+        )
+        prior_supporting_ids = adjudication.get("supporting_ids") or []
+        current_members = set(finding.get("member_ids") or [])
+        finding["reusable_supporting_ids"] = [
+            identifier for identifier in prior_supporting_ids
+            if identifier in current_members
+        ]
+        finding["removed_supporting_ids"] = [
+            identifier for identifier in prior_supporting_ids
+            if identifier not in current_members
+        ]
     return {
         "stage_key": stage_key,
         "stage_name": stage.get("name"),
