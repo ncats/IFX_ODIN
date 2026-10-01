@@ -48,7 +48,6 @@ from src.core.curations import (
     resolve_curation_type,
     validate_operation,
 )
-from src.shared.metabolite_structure_chemistry import calculate_smiles_chemistry
 from src.core.record_property_curations import (
     CURATION_ORIGINAL_FIELD,
     MISSING_ORIGINAL_MARKER,
@@ -56,6 +55,7 @@ from src.core.record_property_curations import (
     canonical_path as _canonical_record_property_path,
     display_path as _display_record_property_path,
     is_protected_curation_field,
+    recalculate_curated_structure_derivatives,
     resolve_parent_and_field,
     schema_for_path,
     validate_value_for_schema,
@@ -1969,6 +1969,7 @@ def _load_record_overlays(
         )
     overlays = dict(documents)
     reports = []
+    decisions_by_target = {}
     for decision in decisions:
         descriptor = schema_for_path(schema_fields, decision.path)
         if decision.mode == "set":
@@ -1977,25 +1978,14 @@ def _load_record_overlays(
         overlays[target_id], report = apply_record_property_decision(
             overlays[target_id], decision
         )
+        decisions_by_target.setdefault(target_id, []).append(decision)
         reports.append(report)
-    if model_type == "ChemicalEntity":
-        derived_fields = (
-            "calculated_mw",
-            "calculated_monoisotopic_mass",
-            "structure_calculation_input_field",
-            "structure_calculation_method",
-            "structure_calculation_method_version",
-            "structure_calculation_error",
+    for target_id, target_decisions in decisions_by_target.items():
+        overlays[target_id] = recalculate_curated_structure_derivatives(
+            overlays[target_id],
+            model_type=model_type,
+            decisions=target_decisions,
         )
-        for target_id, document in overlays.items():
-            recalculated = calculate_smiles_chemistry(
-                document.get("smiles"), "smiles"
-            )
-            for field_name in derived_fields:
-                document[field_name] = recalculated.get(field_name)
-            document["structure_components"] = recalculated.get(
-                "structure_components", []
-            )
     return overlays, reports
 
 

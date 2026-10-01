@@ -15,13 +15,16 @@ from src.models.metabolite_harmonization import (
     MetaboliteStructureComponent,
 )
 from src.shared.chebi_mass import validated_chebi_mass_values
-from src.shared.metabolite_structure_chemistry import calculate_smiles_chemistry
+from src.shared.metabolite_structure_chemistry import (
+    DERIVED_INCHI_KEY_METHOD,
+    calculate_smiles_chemistry,
+    derive_inchi_key_from_smiles,
+)
 
 
 HMDB_STRUCTURES_SDF_MEMBER = "structures.sdf"
 HMDB_METABOLITES_XML_MEMBER = "hmdb_metabolites.xml"
 LIPIDMAPS_SDF_MEMBER = "structures.sdf"
-DERIVED_INCHI_KEY_METHOD = "rdkit.Chem.inchi.MolToInchiKey"
 SDF_MOL_BLOCK_INPUT_FIELD = "sdf_mol_block"
 
 
@@ -577,66 +580,8 @@ def _derive_inchi_key_from_smiles(
     isomeric_smiles: Optional[str] = None,
     canonical_smiles: Optional[str] = None,
 ) -> dict:
-    candidates = (
-        ("iso_smiles", _clean_text(iso_smiles)),
-        ("isomeric_smiles", _clean_text(isomeric_smiles)),
-        ("canonical_smiles", _clean_text(canonical_smiles)),
+    return derive_inchi_key_from_smiles(
+        iso_smiles=iso_smiles,
+        isomeric_smiles=isomeric_smiles,
+        canonical_smiles=canonical_smiles,
     )
-    input_field, smiles = next(
-        ((field_name, value) for field_name, value in candidates if value),
-        (None, None),
-    )
-    if smiles is None:
-        return {}
-
-    try:
-        import rdkit
-        from rdkit import Chem, rdBase
-        from rdkit.Chem import inchi
-    except ImportError as exc:
-        raise RuntimeError(
-            "RDKit is required to derive InChIKeys from metabolite SMILES during ingest"
-        ) from exc
-
-    try:
-        with rdBase.BlockLogs():
-            molecule = Chem.MolFromSmiles(smiles)
-    except Exception as exc:
-        return {
-            "derived_inchi_key_input_field": input_field,
-            "derived_inchi_key_method": DERIVED_INCHI_KEY_METHOD,
-            "derived_inchi_key_method_version": rdkit.__version__,
-            "derived_inchi_key_error": f"smiles_parse_error:{type(exc).__name__}",
-        }
-    if molecule is None:
-        return {
-            "derived_inchi_key_input_field": input_field,
-            "derived_inchi_key_method": DERIVED_INCHI_KEY_METHOD,
-            "derived_inchi_key_method_version": rdkit.__version__,
-            "derived_inchi_key_error": "smiles_parse_failed",
-        }
-
-    try:
-        with rdBase.BlockLogs():
-            derived_inchi_key = _clean_text(inchi.MolToInchiKey(molecule))
-    except Exception as exc:
-        return {
-            "derived_inchi_key_input_field": input_field,
-            "derived_inchi_key_method": DERIVED_INCHI_KEY_METHOD,
-            "derived_inchi_key_method_version": rdkit.__version__,
-            "derived_inchi_key_error": f"inchi_key_generation_error:{type(exc).__name__}",
-        }
-    if derived_inchi_key is None:
-        return {
-            "derived_inchi_key_input_field": input_field,
-            "derived_inchi_key_method": DERIVED_INCHI_KEY_METHOD,
-            "derived_inchi_key_method_version": rdkit.__version__,
-            "derived_inchi_key_error": "inchi_key_generation_failed",
-        }
-    return {
-        "derived_inchi_key_prefix": _inchi_key_prefix(derived_inchi_key),
-        "derived_inchi_key": derived_inchi_key,
-        "derived_inchi_key_input_field": input_field,
-        "derived_inchi_key_method": DERIVED_INCHI_KEY_METHOD,
-        "derived_inchi_key_method_version": rdkit.__version__,
-    }
