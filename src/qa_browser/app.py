@@ -7,6 +7,7 @@ import importlib.util
 import inspect
 import io
 import json
+import logging
 import math
 import os
 import re
@@ -33,6 +34,8 @@ from sqlalchemy.engine import Engine
 from starlette.concurrency import run_in_threadpool
 
 import uvicorn
+
+logger = logging.getLogger(__name__)
 
 from src.core.curations import (
     CHEBI_RECORD_PROPERTIES,
@@ -75,6 +78,10 @@ from src.shared.metabolite_mass_validation import (
     mw_review_evidence_snapshot,
 )
 from src.qa_browser.build_provenance import extract_build_inputs
+from src.qa_browser.harmonization_stage_maintenance import (
+    delete_one_orphan_stage,
+    delete_stage_artifacts,
+)
 from src.qa_browser.disease_id_graph import (
     DOWNLOADABLE_FILES,
     REVIEW_DECISION_OPTIONS,
@@ -318,7 +325,12 @@ _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION = "HarmonizationStageEvidenceEdge"
 _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION = "HarmonizationStageActiveIdentifierChunk"
 _HARMONIZATION_ENGINE_VERSION = "staged-pipeline-v9"
 _HARMONIZATION_AQL_BATCH_SIZE = 1000
-_HARMONIZATION_ORPHAN_GRACE_PERIOD = timedelta(hours=1)
+# Pipeline mutation and stage retirement share one process-wide lock in the
+# single-worker QA deployment, so an unreferenced complete stage is immediately
+# safe to claim. Delaying it would require a poller or delayed durable job to
+# guarantee that a newly orphaned stage is revisited.
+_HARMONIZATION_ORPHAN_GRACE_PERIOD = timedelta(0)
+_HARMONIZATION_CLEANUP_MAX_RETRIES = 2
 _HARMONIZATION_SOURCE_COLLECTIONS = (
     "MetaboliteIdentifier",
     "MetaboliteIdentifierMappingEdge",
@@ -2265,32 +2277,7 @@ def _cumulative_rule_parameters(rule_ids: List[str], rule_parameters: dict) -> d
 
 
 def _delete_harmonization_stage_artifacts(db, stage_key: str) -> None:
-    for collection_name in (
-        _HARMONIZED_METABOLITE_MEMBER_EDGE_COLLECTION,
-        _HARMONIZED_METABOLITE_COLLECTION,
-        _HARMONIZATION_STAGE_EVIDENCE_EDGE_COLLECTION,
-        _HARMONIZATION_STAGE_ACTIVE_IDENTIFIER_CHUNK_COLLECTION,
-    ):
-        if not db.has_collection(collection_name):
-            continue
-        while True:
-            deleted = list(db.aql.execute(
-                f"""
-                LET keys = (
-                  FOR d IN {collection_name}
-                    FILTER d.stage_key == @stage_key
-                    LIMIT 10000
-                    RETURN d._key
-                )
-                FOR key IN keys
-                  REMOVE key IN {collection_name}
-                RETURN OLD._key
-                """,
-                bind_vars={"stage_key": stage_key},
-                max_runtime=120,
-            ))
-            if not deleted:
-                break
+    delete_stage_artifacts(db, stage_key)
 
 
 def _stage_is_referenced_by_any_run(db, stage_key: str) -> bool:
@@ -3407,9 +3394,19 @@ def _ensure_harmonization_stage(
         generic_structure_classification_fingerprint
     )
     stage_key = _harmonization_stage_key(rule_ids, rule_parameters, stage_fingerprint)
-    existing = db.collection(_HARMONIZATION_STAGE_COLLECTION).get(stage_key)
+    stage_collection = db.collection(_HARMONIZATION_STAGE_COLLECTION)
+    existing = stage_collection.get(stage_key)
     if existing and existing.get("status") == "complete":
         return existing
+    if existing and existing.get("status") == "deleting":
+        # Cleanup deletes the stage document last. A pipeline asking for the
+        # same deterministic stage resumes that interrupted retirement before
+        # rebuilding it from scratch.
+        _delete_harmonization_stage_artifacts(db, stage_key)
+        current = stage_collection.get(stage_key)
+        if current and current.get("status") == "deleting":
+            stage_collection.delete(stage_key)
+        existing = None
 
     record_overlays = {}
     record_property_reports = []
@@ -4991,6 +4988,10 @@ def _get_harmonization_stage(stage_key: str) -> dict:
     stage = db.collection(_HARMONIZATION_STAGE_COLLECTION).get(stage_key)
     if not stage:
         raise ValueError(f"Harmonization stage {stage_key} does not exist.")
+    if stage.get("status") == "deleting":
+        raise ValueError(
+            f"Harmonization stage {stage_key} is being retired; reload after cleanup completes."
+        )
     return stage
 
 
@@ -6685,7 +6686,11 @@ def _load_metabolite_snapshot_comparison_visualization(
 
 def _list_metabolite_snapshot_jobs() -> List[dict]:
     with _metabolite_snapshot_jobs_lock:
-        jobs = [dict(job) for job in _metabolite_snapshot_jobs.values()]
+        jobs = [
+            dict(job)
+            for job in _metabolite_snapshot_jobs.values()
+            if not job.get("housekeeping")
+        ]
     return sorted(jobs, key=lambda job: job.get("created_at") or "", reverse=True)[:10]
 
 
@@ -6710,6 +6715,72 @@ def _active_harmonization_delete_pipeline_keys(jobs: Optional[List[dict]] = None
     }
 
 
+def _has_active_harmonization_pipeline_mutation(exclude_job_id: Optional[str] = None) -> bool:
+    with _metabolite_snapshot_jobs_lock:
+        return any(
+            job.get("id") != exclude_job_id
+            and job.get("action") in {"run_pipeline", "delete_pipeline"}
+            and job.get("status") in {"queued", "running"}
+            for job in _metabolite_snapshot_jobs.values()
+        )
+
+
+def _enqueue_harmonization_orphan_cleanup(retry_count: int = 0) -> str:
+    """Queue one low-priority cleanup pass when no pipeline mutation is waiting."""
+    with _metabolite_snapshot_jobs_lock:
+        if any(
+            job.get("status") in {"queued", "running"}
+            and job.get("action") in {"run_pipeline", "delete_pipeline", "cleanup_orphan_stages"}
+            for job in _metabolite_snapshot_jobs.values()
+        ):
+            return ""
+        completed_cleanup_job_ids = [
+            existing_job_id
+            for existing_job_id, job in _metabolite_snapshot_jobs.items()
+            if job.get("action") == "cleanup_orphan_stages"
+            and job.get("status") in {"complete", "failed"}
+        ]
+        for completed_job_id in completed_cleanup_job_ids:
+            _metabolite_snapshot_jobs.pop(completed_job_id, None)
+        job_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+        _metabolite_snapshot_jobs[job_id] = {
+            "id": job_id,
+            "action": "cleanup_orphan_stages",
+            "label": "Retire unused harmonization stage",
+            "housekeeping": True,
+            "snapshot_key": None,
+            "pipeline_key": None,
+            "status": "queued",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": None,
+            "completed_at": None,
+            "message": None,
+            "error": None,
+            "retry_count": retry_count,
+        }
+    thread = threading.Thread(
+        target=_run_metabolite_snapshot_job,
+        args=(job_id, "cleanup_orphan_stages", {"retry_count": retry_count}),
+        daemon=True,
+    )
+    thread.start()
+    return job_id
+
+
+def _schedule_next_harmonization_orphan_cleanup(
+    retry_count: int = 0,
+    delay_seconds: float = 0.25,
+) -> None:
+    """Yield briefly, then enqueue another one-shot pass if the app is idle."""
+    timer = threading.Timer(
+        delay_seconds,
+        _enqueue_harmonization_orphan_cleanup,
+        kwargs={"retry_count": retry_count},
+    )
+    timer.daemon = True
+    timer.start()
+
+
 def _update_metabolite_snapshot_job(job_id: str, **updates) -> None:
     with _metabolite_snapshot_jobs_lock:
         job = _metabolite_snapshot_jobs.get(job_id)
@@ -6720,6 +6791,9 @@ def _update_metabolite_snapshot_job(job_id: str, **updates) -> None:
 
 def _run_metabolite_snapshot_job(job_id: str, action: str, payload: dict) -> None:
     _update_metabolite_snapshot_job(job_id, status="running", started_at=datetime.now(timezone.utc).isoformat())
+    cleanup_deleted_stage = False
+    cleanup_retry_count = None
+    trigger_cleanup = action in {"run_pipeline", "delete_pipeline"}
     try:
         # Stage snapshots are shared across pipelines. Keep all mutations in
         # one process-wide critical section so two jobs cannot materialize or
@@ -6746,15 +6820,58 @@ def _run_metabolite_snapshot_job(job_id: str, action: str, payload: dict) -> Non
                     stage_keys=result.get("deleted_stage_keys") or [],
                     message=f"Deleted pipeline {result.get('pipeline', {}).get('name') or payload['pipeline_key']}",
                 )
+            elif action == "cleanup_orphan_stages":
+                if _has_active_harmonization_pipeline_mutation(exclude_job_id=job_id):
+                    _update_metabolite_snapshot_job(
+                        job_id,
+                        status="complete",
+                        completed_at=datetime.now(timezone.utc).isoformat(),
+                        message="Deferred stage cleanup while pipeline work is queued",
+                    )
+                else:
+                    result = delete_one_orphan_stage(
+                        get_db("metabolite_harmonization"),
+                        grace_period=_HARMONIZATION_ORPHAN_GRACE_PERIOD,
+                    )
+                    cleanup_deleted_stage = result is not None
+                    _update_metabolite_snapshot_job(
+                        job_id,
+                        status="complete",
+                        completed_at=datetime.now(timezone.utc).isoformat(),
+                        stage_keys=[result["stage_key"]] if result else [],
+                        message=(
+                            f"Retired unused stage {result['stage_key']}"
+                            if result else "No unused harmonization stages were ready for cleanup"
+                        ),
+                    )
             else:
                 raise ValueError(f"Unknown harmonization job action: {action}")
     except Exception as exc:
+        if action == "cleanup_orphan_stages":
+            prior_retry_count = int(payload.get("retry_count") or 0)
+            logger.exception(
+                "Harmonization orphan-stage cleanup failed (attempt %s of %s)",
+                prior_retry_count + 1,
+                _HARMONIZATION_CLEANUP_MAX_RETRIES + 1,
+            )
+            if prior_retry_count < _HARMONIZATION_CLEANUP_MAX_RETRIES:
+                cleanup_retry_count = prior_retry_count + 1
         _update_metabolite_snapshot_job(
             job_id,
             status="failed",
             completed_at=datetime.now(timezone.utc).isoformat(),
             error=str(exc),
         )
+    finally:
+        if cleanup_deleted_stage:
+            _schedule_next_harmonization_orphan_cleanup()
+        elif cleanup_retry_count is not None:
+            _schedule_next_harmonization_orphan_cleanup(
+                retry_count=cleanup_retry_count,
+                delay_seconds=2.0,
+            )
+        elif trigger_cleanup:
+            _enqueue_harmonization_orphan_cleanup()
 
 
 def _enqueue_metabolite_snapshot_job(action: str, label: str, payload: dict) -> str:
