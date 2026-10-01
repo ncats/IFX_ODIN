@@ -376,7 +376,9 @@
                     replace_target: true,
                 }),
             }));
-            status.textContent = "MW validation decision added and autosaved. It becomes active after publication.";
+            status.textContent = form.hasAttribute("data-mw-keep-acceptance")
+                ? "Keep acceptance queued and autosaved. It becomes active after publication."
+                : "MW validation decision added and autosaved. It becomes active after publication.";
         } catch (error) {
             status.textContent = error.message;
         } finally {

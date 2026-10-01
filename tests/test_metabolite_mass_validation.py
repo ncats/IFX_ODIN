@@ -1,7 +1,9 @@
 from src.shared.metabolite_mass_validation import (
     assess_mass_profiles,
     cluster_mass_observations,
+    compare_mw_review_evidence,
     mass_validation_finding_metadata,
+    mw_review_evidence_snapshot,
 )
 
 
@@ -224,3 +226,115 @@ def test_partial_component_match_does_not_hide_unexplained_mass_cluster():
     assert assessment["channel_results"]["average"]["mass_cluster_count"] == 3
     assert assessment["channel_results"]["average"]["explained_mass_cluster_count"] == 2
     assert len(assessment["component_matches"]) == 1
+
+
+def test_mw_review_snapshot_is_deterministic_and_uses_decimal_strings():
+    first = mw_review_evidence_snapshot(
+        {
+            "member_mass_examples": [
+                {"member_id": "HMDB:1", "average_masses": [150.0]},
+                {"member_id": "CHEBI:1", "average_masses": [100.00]},
+            ],
+            "component_matches": [{
+                "channel": "average",
+                "whole_member_id": "CHEBI:1",
+                "whole_mass": 100.0,
+                "component_member_id": "HMDB:1",
+                "component_mass": 150.00,
+                "component_formula": "Na",
+            }],
+        },
+        validator_version="component-aware-v1",
+        threshold=0.10,
+    )
+    reordered = mw_review_evidence_snapshot(
+        {
+            "member_mass_examples": [
+                {"member_id": "CHEBI:1", "average_masses": [100]},
+                {"member_id": "HMDB:1", "average_masses": [150]},
+            ],
+            "component_matches": list(reversed(first["component_matches"])),
+        },
+        validator_version="component-aware-v1",
+        threshold=0.1,
+    )
+
+    assert first == reordered
+    assert first["threshold"] == "0.1"
+    assert [item["value"] for item in first["mass_observations"]] == ["100", "150"]
+
+
+def test_mw_review_comparison_reports_legacy_and_precise_changes():
+    current = {
+        "version": "mw-review-evidence-v1",
+        "validator_version": "component-aware-v1",
+        "threshold": "0.1",
+        "mass_observations": [
+            {"member_id": "CHEBI:1", "channel": "average", "value": "100"},
+            {"member_id": "HMDB:1", "channel": "average", "value": "151"},
+        ],
+        "component_matches": [],
+    }
+    previous = {
+        **current,
+        "mass_observations": [
+            {"member_id": "CHEBI:1", "channel": "average", "value": "100"},
+            {"member_id": "HMDB:1", "channel": "average", "value": "150"},
+        ],
+    }
+
+    legacy = compare_mw_review_evidence(
+        current_member_ids=["CHEBI:1", "HMDB:1"],
+        current_snapshot=current,
+        current_fingerprint="b" * 64,
+        previous_member_ids=["CHEBI:1", "HMDB:1"],
+        previous_snapshot=None,
+        previous_fingerprint="a" * 64,
+    )
+    precise = compare_mw_review_evidence(
+        current_member_ids=["CHEBI:1", "HMDB:1"],
+        current_snapshot=current,
+        current_fingerprint="b" * 64,
+        previous_member_ids=["CHEBI:1", "HMDB:1"],
+        previous_snapshot=previous,
+        previous_fingerprint="a" * 64,
+    )
+
+    assert legacy["membership_changed"] is False
+    assert legacy["previous_evidence_available"] is False
+    assert precise["added_mass_observations"][0]["value"] == "151"
+    assert precise["removed_mass_observations"][0]["value"] == "150"
+
+
+def test_compare_mw_review_evidence_separates_membership_only_changes():
+    snapshot = {
+        "version": "mw-review-evidence-v1",
+        "validator_version": "component-aware-v1",
+        "threshold": "1",
+        "mass_observations": [
+            {"member_id": "CHEBI:1", "channel": "monoisotopic", "value": "10"},
+        ],
+        "component_matches": [],
+    }
+
+    precise = compare_mw_review_evidence(
+        current_member_ids=["CHEBI:1", "CHEBI:MASSLESS"],
+        current_snapshot=snapshot,
+        current_fingerprint="new-fingerprint",
+        previous_member_ids=["CHEBI:1"],
+        previous_snapshot=snapshot,
+        previous_fingerprint="old-fingerprint",
+    )
+    legacy = compare_mw_review_evidence(
+        current_member_ids=["CHEBI:1", "CHEBI:MASSLESS"],
+        current_snapshot=snapshot,
+        current_fingerprint="new-fingerprint",
+        previous_member_ids=["CHEBI:1"],
+        previous_snapshot=None,
+        previous_fingerprint="old-fingerprint",
+    )
+
+    assert precise["membership_changed"] is True
+    assert precise["evidence_changed"] is False
+    assert legacy["membership_changed"] is True
+    assert legacy["evidence_changed"] is None

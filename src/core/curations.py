@@ -20,6 +20,7 @@ METABOLITE_RECORD_PROPERTIES = "metabolite_record_properties"
 CHEBI_RECORD_PROPERTIES = "chebi_record_properties"
 METABOLITE_RECORD_SUPPRESSIONS = "metabolite_record_suppressions"
 METABOLITE_MW_ADJUDICATIONS = "metabolite_mw_adjudications"
+MW_REVIEW_EVIDENCE_VERSION = "mw-review-evidence-v1"
 
 
 @dataclass(frozen=True)
@@ -275,7 +276,79 @@ def validate_operation(curation_type: str, operation: dict) -> dict:
                 identifier not in member_ids for identifier in supporting_ids
             ):
                 raise ValueError("Supporting identifiers must belong to the reviewed finding")
+        if operation.get("observed_evidence_snapshot") is not None:
+            _validate_mw_review_evidence_snapshot(
+                operation["observed_evidence_snapshot"], member_ids
+            )
     return operation
+
+
+def _validate_mw_review_evidence_snapshot(snapshot: object, member_ids: list[str]) -> None:
+    if not isinstance(snapshot, dict):
+        raise ValueError("MW reviewed evidence snapshot must be an object")
+    if snapshot.get("version") != MW_REVIEW_EVIDENCE_VERSION:
+        raise ValueError("MW reviewed evidence snapshot has an unsupported version")
+    validator_version = snapshot.get("validator_version")
+    if validator_version is not None and not isinstance(validator_version, str):
+        raise ValueError("MW reviewed evidence validator version must be text or null")
+    threshold = snapshot.get("threshold")
+    decimal_pattern = r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?"
+    if threshold is not None and (
+        not isinstance(threshold, str)
+        or not re.fullmatch(decimal_pattern, threshold)
+    ):
+        raise ValueError("MW reviewed evidence threshold must be a decimal string or null")
+
+    mass_observations = snapshot.get("mass_observations")
+    if not isinstance(mass_observations, list):
+        raise ValueError("MW reviewed evidence mass observations must be a list")
+    normalized_masses = []
+    for observation in mass_observations:
+        if not isinstance(observation, dict):
+            raise ValueError("MW reviewed mass observations must be objects")
+        member_id = observation.get("member_id")
+        channel = observation.get("channel")
+        value = observation.get("value")
+        if member_id not in member_ids:
+            raise ValueError("MW reviewed mass observation member must belong to the finding")
+        if channel not in {"average", "monoisotopic", "unspecified"}:
+            raise ValueError("MW reviewed mass observation has an unsupported channel")
+        if not isinstance(value, str) or not re.fullmatch(decimal_pattern, value):
+            raise ValueError("MW reviewed mass observation value must be a decimal string")
+        normalized_masses.append((member_id, channel, value))
+    if normalized_masses != sorted(set(normalized_masses)):
+        raise ValueError("MW reviewed mass observations must be unique and sorted")
+
+    component_matches = snapshot.get("component_matches")
+    if not isinstance(component_matches, list):
+        raise ValueError("MW reviewed component matches must be a list")
+    normalized_components = []
+    for match in component_matches:
+        if not isinstance(match, dict):
+            raise ValueError("MW reviewed component matches must be objects")
+        channel = match.get("channel")
+        whole_member_id = match.get("whole_member_id")
+        component_member_id = match.get("component_member_id")
+        whole_mass = match.get("whole_mass")
+        component_mass = match.get("component_mass")
+        if channel not in {"average", "monoisotopic", "unspecified"}:
+            raise ValueError("MW reviewed component match has an unsupported channel")
+        if whole_member_id not in member_ids or component_member_id not in member_ids:
+            raise ValueError("MW reviewed component match members must belong to the finding")
+        if any(
+            not isinstance(value, str) or not re.fullmatch(decimal_pattern, value)
+            for value in (whole_mass, component_mass)
+        ):
+            raise ValueError("MW reviewed component masses must be decimal strings")
+        formula = match.get("component_formula")
+        if formula is not None and not isinstance(formula, str):
+            raise ValueError("MW reviewed component formula must be text or null")
+        normalized_components.append((
+            channel, whole_member_id, whole_mass,
+            component_member_id, component_mass, formula or "",
+        ))
+    if normalized_components != sorted(set(normalized_components)):
+        raise ValueError("MW reviewed component matches must be unique and sorted")
 
 
 def _validate_record_property_operation(

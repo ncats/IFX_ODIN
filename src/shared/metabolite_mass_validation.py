@@ -1,14 +1,192 @@
 import hashlib
 import json
+from decimal import Decimal, InvalidOperation
 from typing import Dict, Iterable, List, Optional
 
 
 MW_VALIDATION_VERSION = "component-aware-v1"
 MW_FINDING_FINGERPRINT_VERSION = "mw-finding-v1"
+MW_REVIEW_EVIDENCE_VERSION = "mw-review-evidence-v1"
 
 
 def _canonical_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _canonical_mass(value: object) -> Optional[str]:
+    try:
+        mass = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if not mass.is_finite():
+        return None
+    normalized = format(mass.normalize(), "f")
+    return "0" if normalized == "-0" else normalized
+
+
+def mw_review_evidence_snapshot(
+    finding: dict,
+    *,
+    validator_version: Optional[str],
+    threshold: Optional[float],
+) -> dict:
+    """Persist a compact, deterministic record of the MW evidence reviewed."""
+    mass_observations = set()
+    for example in finding.get("member_mass_examples") or []:
+        member_id = str(example.get("member_id") or "").strip()
+        if not member_id:
+            continue
+        for field_name, channel in (
+            ("average_masses", "average"),
+            ("monoisotopic_masses", "monoisotopic"),
+            ("masses", "unspecified"),
+        ):
+            for value in example.get(field_name) or []:
+                canonical = _canonical_mass(value)
+                if canonical is not None:
+                    mass_observations.add((member_id, channel, canonical))
+
+    component_matches = set()
+    for match in finding.get("component_matches") or []:
+        canonical_whole = _canonical_mass(match.get("whole_mass"))
+        canonical_component = _canonical_mass(match.get("component_mass"))
+        whole_member_id = str(match.get("whole_member_id") or "").strip()
+        component_member_id = str(match.get("component_member_id") or "").strip()
+        channel = str(match.get("channel") or "").strip()
+        if not (
+            channel and whole_member_id and component_member_id
+            and canonical_whole is not None and canonical_component is not None
+        ):
+            continue
+        component_matches.add((
+            channel,
+            whole_member_id,
+            canonical_whole,
+            component_member_id,
+            canonical_component,
+            str(match.get("component_formula") or "").strip(),
+        ))
+
+    return {
+        "version": MW_REVIEW_EVIDENCE_VERSION,
+        "validator_version": str(validator_version or "").strip() or None,
+        "threshold": _canonical_mass(threshold),
+        "mass_observations": [
+            {"member_id": member_id, "channel": channel, "value": value}
+            for member_id, channel, value in sorted(mass_observations)
+        ],
+        "component_matches": [
+            {
+                "channel": channel,
+                "whole_member_id": whole_member_id,
+                "whole_mass": whole_mass,
+                "component_member_id": component_member_id,
+                "component_mass": component_mass,
+                "component_formula": component_formula or None,
+            }
+            for (
+                channel, whole_member_id, whole_mass, component_member_id,
+                component_mass, component_formula,
+            ) in sorted(component_matches)
+        ],
+    }
+
+
+def compare_mw_review_evidence(
+    *,
+    current_member_ids: Iterable[str],
+    current_snapshot: dict,
+    current_fingerprint: str,
+    previous_member_ids: Iterable[str],
+    previous_snapshot: Optional[dict],
+    previous_fingerprint: str,
+) -> dict:
+    """Describe review-relevant changes without claiming unavailable evidence."""
+    current_members = set(current_member_ids)
+    previous_members = set(previous_member_ids)
+    added_members = sorted(current_members - previous_members)
+    removed_members = sorted(previous_members - current_members)
+    result = {
+        "membership_changed": bool(added_members or removed_members),
+        "current_member_count": len(current_members),
+        "previous_member_count": len(previous_members),
+        "added_member_ids": added_members,
+        "removed_member_ids": removed_members,
+        # A legacy fingerprint covers both clique membership and MW evidence.
+        # When membership changed, it cannot tell us whether the evidence did.
+        "evidence_changed": (
+            current_fingerprint != previous_fingerprint
+            if not (added_members or removed_members)
+            else None
+        ),
+        "previous_evidence_available": isinstance(previous_snapshot, dict),
+        "current_evidence_fingerprint": current_fingerprint,
+        "previous_evidence_fingerprint": previous_fingerprint,
+        "added_mass_observations": [],
+        "removed_mass_observations": [],
+        "added_component_matches": [],
+        "removed_component_matches": [],
+        "validator_changed": False,
+        "threshold_changed": False,
+        "unexplained_evidence_change": False,
+    }
+    if not isinstance(previous_snapshot, dict):
+        return result
+
+    current_masses = {
+        _canonical_json(item): item
+        for item in current_snapshot.get("mass_observations") or []
+    }
+    previous_masses = {
+        _canonical_json(item): item
+        for item in previous_snapshot.get("mass_observations") or []
+    }
+    current_components = {
+        _canonical_json(item): item
+        for item in current_snapshot.get("component_matches") or []
+    }
+    previous_components = {
+        _canonical_json(item): item
+        for item in previous_snapshot.get("component_matches") or []
+    }
+    result.update({
+        "added_mass_observations": [
+            current_masses[key] for key in sorted(current_masses.keys() - previous_masses.keys())
+        ],
+        "removed_mass_observations": [
+            previous_masses[key] for key in sorted(previous_masses.keys() - current_masses.keys())
+        ],
+        "added_component_matches": [
+            current_components[key]
+            for key in sorted(current_components.keys() - previous_components.keys())
+        ],
+        "removed_component_matches": [
+            previous_components[key]
+            for key in sorted(previous_components.keys() - current_components.keys())
+        ],
+        "validator_changed": (
+            current_snapshot.get("validator_version")
+            != previous_snapshot.get("validator_version")
+        ),
+        "threshold_changed": (
+            current_snapshot.get("threshold") != previous_snapshot.get("threshold")
+        ),
+    })
+    evidence_changed = any((
+        result["added_mass_observations"],
+        result["removed_mass_observations"],
+        result["added_component_matches"],
+        result["removed_component_matches"],
+        result["validator_changed"],
+        result["threshold_changed"],
+    ))
+    result["evidence_changed"] = evidence_changed
+    result["unexplained_evidence_change"] = (
+        current_fingerprint != previous_fingerprint
+        and not evidence_changed
+        and not result["membership_changed"]
+    )
+    return result
 
 
 def _finding_anchor(member_ids: List[str]) -> Optional[str]:
