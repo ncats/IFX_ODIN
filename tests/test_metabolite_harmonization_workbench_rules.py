@@ -2204,6 +2204,7 @@ def test_pipeline_jobs_serialize_shared_stage_mutations(monkeypatch):
 
     monkeypatch.setattr(qa_app, "_run_harmonization_pipeline", fake_run)
     monkeypatch.setattr(qa_app, "_update_metabolite_snapshot_job", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(qa_app, "_enqueue_harmonization_orphan_cleanup", lambda: "")
     monkeypatch.setattr(qa_app, "_harmonization_pipeline_mutation_lock", threading.Lock())
 
     threads = [
@@ -2219,6 +2220,256 @@ def test_pipeline_jobs_serialize_shared_stage_mutations(monkeypatch):
         thread.join()
 
     assert max_active_count == 1
+
+
+def test_completed_pipeline_job_triggers_one_shot_orphan_cleanup(monkeypatch):
+    cleanup_requests = []
+    updates = []
+    monkeypatch.setattr(
+        qa_app,
+        "_run_harmonization_pipeline",
+        lambda pipeline_key: {"_key": "run-a", "pipeline_name": pipeline_key},
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_update_metabolite_snapshot_job",
+        lambda job_id, **values: updates.append((job_id, values)),
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_enqueue_harmonization_orphan_cleanup",
+        lambda: cleanup_requests.append(True) or "cleanup-job",
+    )
+    monkeypatch.setattr(qa_app, "_harmonization_pipeline_mutation_lock", threading.Lock())
+
+    qa_app._run_metabolite_snapshot_job(
+        "pipeline-job", "run_pipeline", {"pipeline_key": "pipeline-a"}
+    )
+
+    assert cleanup_requests == [True]
+    assert any(values.get("status") == "complete" for _, values in updates)
+
+
+def test_failed_pipeline_job_still_restarts_deferred_orphan_cleanup(monkeypatch):
+    cleanup_requests = []
+    updates = []
+    monkeypatch.setattr(
+        qa_app,
+        "_run_harmonization_pipeline",
+        lambda _pipeline_key: (_ for _ in ()).throw(RuntimeError("pipeline failed")),
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_update_metabolite_snapshot_job",
+        lambda job_id, **values: updates.append((job_id, values)),
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_enqueue_harmonization_orphan_cleanup",
+        lambda: cleanup_requests.append(True) or "cleanup-job",
+    )
+    monkeypatch.setattr(qa_app, "_harmonization_pipeline_mutation_lock", threading.Lock())
+
+    qa_app._run_metabolite_snapshot_job(
+        "pipeline-job", "run_pipeline", {"pipeline_key": "pipeline-a"}
+    )
+
+    assert cleanup_requests == [True]
+    assert any(
+        values.get("status") == "failed" and values.get("error") == "pipeline failed"
+        for _, values in updates
+    )
+
+
+def test_orphan_cleanup_defers_when_pipeline_work_is_waiting(monkeypatch):
+    monkeypatch.setattr(qa_app, "_metabolite_snapshot_jobs", {
+        "cleanup-job": {
+            "id": "cleanup-job",
+            "action": "cleanup_orphan_stages",
+            "status": "running",
+        },
+        "pipeline-job": {
+            "id": "pipeline-job",
+            "action": "run_pipeline",
+            "status": "queued",
+        },
+    })
+    updates = []
+    monkeypatch.setattr(
+        qa_app,
+        "_update_metabolite_snapshot_job",
+        lambda job_id, **values: updates.append((job_id, values)),
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "delete_one_orphan_stage",
+        lambda *_args, **_kwargs: pytest.fail("cleanup should have deferred"),
+    )
+    monkeypatch.setattr(qa_app, "_harmonization_pipeline_mutation_lock", threading.Lock())
+
+    qa_app._run_metabolite_snapshot_job("cleanup-job", "cleanup_orphan_stages", {})
+
+    assert any("Deferred stage cleanup" in values.get("message", "") for _, values in updates)
+
+
+def test_orphan_cleanup_deletes_one_stage_then_schedules_another_pass(monkeypatch):
+    updates = []
+    followups = []
+    monkeypatch.setattr(qa_app, "_metabolite_snapshot_jobs", {})
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: object())
+    monkeypatch.setattr(
+        qa_app,
+        "delete_one_orphan_stage",
+        lambda *_args, **_kwargs: {"stage_key": "stage-old", "deleted_counts": {}},
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_update_metabolite_snapshot_job",
+        lambda job_id, **values: updates.append((job_id, values)),
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_schedule_next_harmonization_orphan_cleanup",
+        lambda: followups.append(True),
+    )
+    monkeypatch.setattr(qa_app, "_harmonization_pipeline_mutation_lock", threading.Lock())
+
+    qa_app._run_metabolite_snapshot_job("cleanup-job", "cleanup_orphan_stages", {})
+
+    assert followups == [True]
+    assert any(values.get("stage_keys") == ["stage-old"] for _, values in updates)
+
+
+def test_orphan_cleanup_failure_logs_and_schedules_bounded_retry(monkeypatch, caplog):
+    updates = []
+    retries = []
+    monkeypatch.setattr(qa_app, "_metabolite_snapshot_jobs", {})
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: object())
+    monkeypatch.setattr(
+        qa_app,
+        "delete_one_orphan_stage",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("temporary outage")),
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_update_metabolite_snapshot_job",
+        lambda job_id, **values: updates.append((job_id, values)),
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_schedule_next_harmonization_orphan_cleanup",
+        lambda **kwargs: retries.append(kwargs),
+    )
+    monkeypatch.setattr(qa_app, "_harmonization_pipeline_mutation_lock", threading.Lock())
+
+    with caplog.at_level("ERROR"):
+        qa_app._run_metabolite_snapshot_job(
+            "cleanup-job", "cleanup_orphan_stages", {"retry_count": 0}
+        )
+
+    assert retries == [{"retry_count": 1, "delay_seconds": 2.0}]
+    assert any(values.get("status") == "failed" for _, values in updates)
+    assert "Harmonization orphan-stage cleanup failed" in caplog.text
+
+
+def test_orphan_cleanup_stops_retrying_after_bounded_attempts(monkeypatch):
+    retries = []
+    monkeypatch.setattr(qa_app, "_metabolite_snapshot_jobs", {})
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: object())
+    monkeypatch.setattr(
+        qa_app,
+        "delete_one_orphan_stage",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("persistent outage")),
+    )
+    monkeypatch.setattr(qa_app, "_update_metabolite_snapshot_job", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        qa_app,
+        "_schedule_next_harmonization_orphan_cleanup",
+        lambda **kwargs: retries.append(kwargs),
+    )
+    monkeypatch.setattr(qa_app, "_harmonization_pipeline_mutation_lock", threading.Lock())
+
+    qa_app._run_metabolite_snapshot_job(
+        "cleanup-job",
+        "cleanup_orphan_stages",
+        {"retry_count": qa_app._HARMONIZATION_CLEANUP_MAX_RETRIES},
+    )
+
+    assert retries == []
+
+
+def test_ensure_stage_finishes_interrupted_retirement_before_rebuild(monkeypatch):
+    events = []
+
+    class StopAfterRecovery(Exception):
+        pass
+
+    class FakeStageCollection:
+        @staticmethod
+        def get(stage_key):
+            events.append(("get", stage_key))
+            return {"_key": stage_key, "status": "deleting"}
+
+        @staticmethod
+        def delete(stage_key):
+            events.append(("delete-stage", stage_key))
+
+    class FakeDb:
+        @staticmethod
+        def collection(name):
+            assert name == qa_app._HARMONIZATION_STAGE_COLLECTION
+            return FakeStageCollection()
+
+    monkeypatch.setattr(qa_app, "_harmonization_stage_key", lambda *_args: "stage-old")
+    monkeypatch.setattr(
+        qa_app,
+        "_delete_harmonization_stage_artifacts",
+        lambda _db, stage_key: events.append(("delete-artifacts", stage_key)),
+    )
+    monkeypatch.setattr(
+        qa_app,
+        "_load_metabolite_identifier_source_support",
+        lambda _db: (_ for _ in ()).throw(StopAfterRecovery()),
+    )
+
+    with pytest.raises(StopAfterRecovery):
+        qa_app._ensure_harmonization_stage(
+            FakeDb(),
+            rule_ids=[],
+            rule_parameters={},
+            graph_fingerprint={},
+            display_name="Baseline",
+            stage_index=0,
+            generic_structure_classifications_provider=lambda: {},
+        )
+
+    assert events == [
+        ("get", "stage-old"),
+        ("delete-artifacts", "stage-old"),
+        ("get", "stage-old"),
+        ("delete-stage", "stage-old"),
+    ]
+
+
+def test_get_stage_rejects_stage_being_retired(monkeypatch):
+    class FakeStageCollection:
+        @staticmethod
+        def get(stage_key):
+            return {"_key": stage_key, "status": "deleting"}
+
+    class FakeDb:
+        @staticmethod
+        def has_collection(_name):
+            return True
+
+        @staticmethod
+        def collection(_name):
+            return FakeStageCollection()
+
+    monkeypatch.setattr(qa_app, "get_db", lambda _name: FakeDb())
+
+    with pytest.raises(ValueError, match="is being retired"):
+        qa_app._get_harmonization_stage("stage-old")
 
 
 def test_reconcile_interrupted_runs_only_targets_prior_boot_for_same_instance():
