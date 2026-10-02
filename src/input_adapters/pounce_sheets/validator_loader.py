@@ -3,7 +3,7 @@ from typing import List
 
 import yaml
 
-from src.core.config import create_object_from_config
+from src.core.object_factory import create_object_from_config
 from src.core.validator import AllowedValuesValidator, ConditionalRequiredMapKeyValidator, ConditionalRequiredValidator, IndexedGroupValidator, ParallelListsValidator, RequiredMapKeyValidator, RequiredValidator, Validator
 from src.input_adapters.pounce_sheets.constants import ExperimentWorkbook, ProjectWorkbook, StatsResultsWorkbook
 from src.input_adapters.pounce_sheets.parsed_classes import (

@@ -2729,6 +2729,22 @@ details summary:hover { color: var(--accent); }
     margin: 0;
 }
 
+.metabolite-curation-loaded {
+    color: var(--text-muted);
+    display: block;
+    margin-top: 0.25rem;
+}
+
+.link-button {
+    background: none;
+    border: 0;
+    color: var(--accent);
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-decoration: underline;
+}
+
 .metabolite-curation-filters form {
     align-items: start;
     display: grid;

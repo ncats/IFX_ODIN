@@ -9995,9 +9995,11 @@ def ramp_id_qa_curations(request: Request):
             ),
             stream_errors=stream_errors,
         )
+        index["loaded_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     except Exception as exc:
         error = str(exc)
         index = build_active_curation_review({}, ReviewFilters())
+        index["loaded_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     return templates.TemplateResponse(request, "ramp_id_curations.html", {
         "request": request,
         "index": index,

@@ -8,8 +8,6 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Protocol
 
-from ifx_registry import RegistryClient
-
 from src.models.registry_dataset import RegistryDataset, RegistryDatasetKind
 
 
@@ -70,6 +68,8 @@ class RegistryIntegration:
 
     @classmethod
     def connect(cls, config: Mapping[str, Any]) -> RegistryIntegration:
+        from ifx_registry import RegistryClient
+
         credentials = config.get("credentials")
         if credentials is not None and not isinstance(credentials, (str, Path)):
             raise TypeError("registry.credentials must be a credential YAML path")
