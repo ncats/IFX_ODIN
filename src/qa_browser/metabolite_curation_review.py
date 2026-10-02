@@ -85,6 +85,26 @@ def _person_label(person: Optional[dict]) -> str:
     return str(person.get("name") or person.get("id") or "Not recorded")
 
 
+def _attribution_evidence(source: dict) -> tuple[str, Optional[str]]:
+    evidence = source.get("attribution_evidence")
+    if not evidence:
+        return "", None
+    if isinstance(evidence, str):
+        return evidence, evidence if evidence.startswith(("https://", "http://")) else None
+    if isinstance(evidence, dict):
+        pull_request = evidence.get("pull_request")
+        login = evidence.get("login")
+        if pull_request:
+            label = f"GitHub PR #{pull_request}"
+            if login:
+                label += f" by {login}"
+            url = evidence.get("url")
+            url_text = str(url) if url else ""
+            return label, url_text if url_text.startswith(("https://", "http://")) else None
+        return json.dumps(evidence, sort_keys=True, ensure_ascii=False), None
+    return str(evidence), None
+
+
 def _batch_fields(snapshot: CurationSnapshot, batch_id: str) -> dict[str, Any]:
     batch: Optional[ResolvedCurationBatch] = snapshot.batch(batch_id)
     if batch is None:
@@ -93,25 +113,39 @@ def _batch_fields(snapshot: CurationSnapshot, batch_id: str) -> dict[str, Any]:
             "batch_name": batch_id,
             "curator": "Not recorded",
             "published_at": "",
+            "provenance_date": "",
+            "provenance_date_label": "Published",
             "origin": None,
         }
     source = batch.source or {}
     raw_author = source.get("raw_author") if isinstance(source.get("raw_author"), dict) else None
+    evidence_label, evidence_url = _attribution_evidence(source)
+    is_git_origin = source.get("type") == "legacy_git_blame_attribution"
+    provenance_date = (
+        source.get("authored_at") if is_git_origin else batch.published_at
+    )
+    provenance_date_label = "Recorded in Git" if is_git_origin else "Published"
     return {
         "batch_id": batch.batch_id,
         "batch_name": batch.name or batch.batch_id,
         "batch_description": batch.description,
         "curator": _person_label(batch.created_by),
         "published_at": batch.published_at,
+        "provenance_date": provenance_date or "",
+        "provenance_date_label": provenance_date_label,
         "origin": {
             "type": source.get("type"),
             "repository": source.get("repository"),
             "path": source.get("path"),
             "commit": source.get("commit"),
             "authored_at": source.get("authored_at"),
+            "attribution_confirmed_at": source.get("attribution_confirmed_at"),
+            "attribution_method": source.get("attribution_method"),
             "attributed_curator": _person_label(source.get("attributed_curator")),
             "raw_author": _person_label(raw_author),
             "attribution_evidence": source.get("attribution_evidence"),
+            "attribution_evidence_label": evidence_label,
+            "attribution_evidence_url": evidence_url,
         } if source else None,
     }
 
@@ -248,14 +282,35 @@ def active_curation_rows(
     ))
 
 
-def _matches(row: dict, filters: ReviewFilters) -> bool:
-    if filters.curation_types and row["curation_type"] not in filters.curation_types:
+def _matches(
+    row: dict,
+    filters: ReviewFilters,
+    *,
+    exclude_facet: Optional[str] = None,
+) -> bool:
+    if (
+        exclude_facet != "curation_types"
+        and filters.curation_types
+        and row["curation_type"] not in filters.curation_types
+    ):
         return False
-    if filters.sources and not set(filters.sources).intersection(row["sources"]):
+    if (
+        exclude_facet != "sources"
+        and filters.sources
+        and not set(filters.sources).intersection(row["sources"])
+    ):
         return False
-    if filters.batches and row["batch_id"] not in filters.batches:
+    if (
+        exclude_facet != "batches"
+        and filters.batches
+        and row["batch_id"] not in filters.batches
+    ):
         return False
-    if filters.curators and row["curator"] not in filters.curators:
+    if (
+        exclude_facet != "curators"
+        and filters.curators
+        and row["curator"] not in filters.curators
+    ):
         return False
     if filters.query:
         haystack = " ".join(str(value) for value in (
@@ -268,11 +323,19 @@ def _matches(row: dict, filters: ReviewFilters) -> bool:
     return True
 
 
-def _facet(rows: list[dict], key: str, *, many: bool = False) -> list[dict]:
+def _facet(
+    rows: list[dict],
+    key: str,
+    *,
+    many: bool = False,
+    selected: Iterable[str] = (),
+) -> list[dict]:
     counts: Counter[str] = Counter()
     for row in rows:
         values = row.get(key) or [] if many else [row.get(key)]
         counts.update(str(value) for value in values if value)
+    for value in selected:
+        counts.setdefault(str(value), 0)
     return [{"value": value, "count": count} for value, count in sorted(
         counts.items(), key=lambda item: (-item[1], item[0].casefold())
     )]
@@ -302,7 +365,12 @@ def build_active_curation_review(
         row["batch_id"]: row.get("batch_name") or row["batch_id"]
         for row in all_rows
     }
+    contextual_rows = {
+        facet: [row for row in all_rows if _matches(row, filters, exclude_facet=facet)]
+        for facet in ("curation_types", "sources", "batches", "curators")
+    }
     return {
+        "all_rows": all_rows,
         "rows": filtered_rows[start:start + page_size],
         "total_count": len(all_rows),
         "filtered_count": len(filtered_rows),
@@ -315,14 +383,31 @@ def build_active_curation_review(
         "facets": {
             "curation_types": [
                 {**item, "label": TYPE_LABELS.get(item["value"], item["value"])}
-                for item in _facet(all_rows, "curation_type")
+                for item in _facet(
+                    contextual_rows["curation_types"],
+                    "curation_type",
+                    selected=filters.curation_types,
+                )
             ],
-            "sources": _facet(all_rows, "sources", many=True),
+            "sources": _facet(
+                contextual_rows["sources"],
+                "sources",
+                many=True,
+                selected=filters.sources,
+            ),
             "batches": [
                 {**item, "label": batch_labels.get(item["value"], item["value"])}
-                for item in _facet(all_rows, "batch_id")
+                for item in _facet(
+                    contextual_rows["batches"],
+                    "batch_id",
+                    selected=filters.batches,
+                )
             ],
-            "curators": _facet(all_rows, "curator"),
+            "curators": _facet(
+                contextual_rows["curators"],
+                "curator",
+                selected=filters.curators,
+            ),
         },
         "type_counts": dict(Counter(row["type_label"] for row in all_rows)),
         "stream_errors": dict(stream_errors or {}),

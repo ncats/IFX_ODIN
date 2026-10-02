@@ -9,6 +9,7 @@ from src.core.curations import (
 )
 from src.qa_browser.metabolite_curation_review import (
     ReviewFilters,
+    _attribution_evidence,
     active_curation_rows,
     build_active_curation_review,
 )
@@ -23,12 +24,17 @@ def _batch(batch_id="batch-1"):
         published_at="2026-10-01T12:00:00Z",
         created_by={"id": "john", "name": "John Braisted"},
         source={
-            "type": "git_commit",
+            "type": "legacy_git_blame_attribution",
             "repository": "ncats/RaMP-backend-ncats",
             "path": "config/curation_mapping_issues_list.txt",
             "commit": "dc584fb19656642948a195d22eb7230503a2ab79",
             "authored_at": "2023-03-01T16:50:17-05:00",
             "raw_author": {"name": "johnbraisted", "email": "jb212828@gmail.com"},
+            "attribution_evidence": {
+                "pull_request": 15,
+                "login": "KeithKelleher",
+                "url": "https://github.com/ncats/RaMP-DB/pull/15",
+            },
         },
         object_key=f"curations/v2/test/batches/{batch_id}.json",
         sha256="a" * 64,
@@ -107,8 +113,30 @@ def test_active_review_includes_edge_and_one_row_per_property_path():
     assert edge_row["sources"] == ["CHEBI", "HMDB"]
     assert edge_row["batch_name"] == "Legacy review"
     assert edge_row["origin"]["commit"].startswith("dc584fb")
+    assert edge_row["origin"]["attribution_evidence_label"] == (
+        "GitHub PR #15 by KeithKelleher"
+    )
+    assert edge_row["origin"]["attribution_evidence_url"] == (
+        "https://github.com/ncats/RaMP-DB/pull/15"
+    )
+    assert edge_row["provenance_date_label"] == "Recorded in Git"
+    assert edge_row["provenance_date"] == "2023-03-01T16:50:17-05:00"
+    assert edge_row["published_at"] == "2026-10-01T12:00:00Z"
     property_rows = [row for row in rows if row["kind"] == "property"]
     assert {row["property_path"] for row in property_rows} == {"formula", "mass"}
+
+
+def test_structured_attribution_evidence_rejects_non_http_url():
+    label, url = _attribution_evidence({
+        "attribution_evidence": {
+            "pull_request": 15,
+            "login": "KeithKelleher",
+            "url": "javascript:alert(1)",
+        }
+    })
+
+    assert label == "GitHub PR #15 by KeithKelleher"
+    assert url is None
 
 
 def test_filters_are_or_within_facets_and_and_across_facets():
@@ -137,6 +165,89 @@ def test_filters_are_or_within_facets_and_and_across_facets():
     assert result["filtered_count"] == 2
     assert {item["value"] for item in result["facets"]["sources"]} == {
         "CHEBI", "HMDB", "KEGG.COMPOUND", "REFMET",
+    }
+    assert len(result["all_rows"]) == 2
+
+
+def test_facet_counts_apply_other_filters_but_ignore_their_own_selection():
+    john_batch = _batch("john-batch")
+    keith_batch = ResolvedCurationBatch(
+        batch_id="keith-batch",
+        name="Keith review",
+        description="",
+        created_at="2026-10-01T12:00:00Z",
+        published_at="2026-10-01T12:00:00Z",
+        created_by={"id": "keith", "name": "Keith Kelleher"},
+        source={"type": "qa_browser_curation_cart"},
+        object_key="curations/v2/test/batches/keith-batch.json",
+        sha256="b" * 64,
+    )
+
+    def operation(batch_id, curator, left, right):
+        return ResolvedCurationOperation(
+            curation_type=METABOLITE_EQUIVALENCE_EDGES,
+            operation={
+                "action": "remove_edge",
+                "edge_type": "MetaboliteIdentifierMappingEdge",
+                "start_id": left,
+                "end_id": right,
+                "symmetric": True,
+                "note": "Reviewed",
+            },
+            batch_id=batch_id,
+            published_at="2026-10-01T12:00:00Z",
+            published_by=curator,
+        )
+
+    operations = [
+        operation(
+            "john-batch", john_batch.created_by,
+            "CHEBI:1", "HMDB:1",
+        ),
+        operation(
+            "john-batch", john_batch.created_by,
+            "CHEBI:2", "PUBCHEM.COMPOUND:2",
+        ),
+        operation(
+            "keith-batch", keith_batch.created_by,
+            "CHEBI:3", "HMDB:3",
+        ),
+    ]
+    snapshot = CurationSnapshot(
+        curation_type=METABOLITE_EQUIVALENCE_EDGES,
+        manifest_revision=1,
+        manifest_hash="manifest",
+        batch_ids=["john-batch", "keith-batch"],
+        batch_hashes=[john_batch.sha256, keith_batch.sha256],
+        operations=operations,
+        fingerprint="fingerprint",
+        source_uri="s3://test/manifest.json",
+        batches_by_id={
+            "john-batch": john_batch,
+            "keith-batch": keith_batch,
+        },
+        _active_by_subject={
+            ("row", str(index)): item for index, item in enumerate(operations)
+        },
+    )
+
+    result = build_active_curation_review(
+        {METABOLITE_EQUIVALENCE_EDGES: snapshot},
+        ReviewFilters(curators=("John Braisted",), sources=("HMDB",)),
+    )
+
+    assert result["filtered_count"] == 1
+    assert {item["value"]: item["count"] for item in result["facets"]["sources"]} == {
+        "CHEBI": 2,
+        "HMDB": 1,
+        "PUBCHEM.COMPOUND": 1,
+    }
+    assert {item["value"]: item["count"] for item in result["facets"]["curators"]} == {
+        "John Braisted": 1,
+        "Keith Kelleher": 1,
+    }
+    assert {item["value"]: item["count"] for item in result["facets"]["batches"]} == {
+        "john-batch": 1,
     }
 
 

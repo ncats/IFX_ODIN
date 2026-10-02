@@ -8,7 +8,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="ramp-id-page metabolite-id-qa-page">
+<div class="ramp-id-page metabolite-id-qa-page" id="metaboliteCurationReview" data-root-path="{{ root_path }}">
     <section class="ramp-id-header">
         <div>
             <h1>Active Metabolite Curations</h1>
@@ -28,9 +28,10 @@
     <section class="card metabolite-curation-filters" aria-labelledby="curationFiltersHeading">
         <div>
             <h2 id="curationFiltersHeading">Filter active curations</h2>
-            <p>{{ "{:,}".format(index.filtered_count) }} matching of {{ "{:,}".format(index.total_count) }} active decisions.</p>
+            <p id="metaboliteCurationResultCount" aria-live="polite">{{ "{:,}".format(index.filtered_count) }} matching of {{ "{:,}".format(index.total_count) }} active decisions.</p>
+            <small class="metabolite-curation-loaded">Loaded {{ index.loaded_at[:19]|replace("T", " ") }} UTC. <button class="link-button" id="metaboliteCurationRefresh" type="button">Refresh snapshot</button></small>
         </div>
-        <form method="get" action="{{ root_path }}/ramp-id-qa/curations">
+        <form method="get" action="{{ root_path }}/ramp-id-qa/curations" id="metaboliteCurationFilters">
             <label class="metabolite-curation-search">Search
                 <input type="search" name="q" value="{{ index.filters.query }}" placeholder="Identifier, rationale, batch, or curator">
             </label>
@@ -63,8 +64,8 @@
                 </select>
             </label>
             <div class="metabolite-curation-filter-actions">
-                <button class="btn btn-primary" type="submit">Apply filters</button>
-                <a class="btn btn-secondary" href="{{ root_path }}/ramp-id-qa/curations">Clear</a>
+                <button class="btn btn-primary metabolite-curation-apply" type="submit">Apply filters</button>
+                <a class="btn btn-secondary" href="{{ root_path }}/ramp-id-qa/curations" id="metaboliteCurationClear">Clear</a>
             </div>
         </form>
         <small>Choose multiple values with Ctrl/Command-click. Values within a facet match any selected value; facets combine together.</small>
@@ -77,11 +78,10 @@
                 <p>Superseded, restored, reopened, and retired decisions are not included.</p>
             </div>
         </div>
-        {% if index.rows %}
-        <div class="table-wrap">
+        <div class="table-wrap" id="metaboliteCurationTableWrap" {% if not index.rows %}hidden{% endif %}>
             <table class="metabolite-curation-index-table">
                 <thead><tr><th>Type</th><th>Subject</th><th>Decision</th><th>Sources</th><th>Provenance</th><th>Review</th></tr></thead>
-                <tbody>
+                <tbody id="metaboliteCurationRows">
                 {% for row in index.rows %}
                 <tr>
                     <td>{{ row.type_label }}</td>
@@ -100,7 +100,7 @@
                     <td>
                         <div><strong>{{ row.batch_name }}</strong></div>
                         <div><code>{{ row.batch_id }}</code></div>
-                        <div>{{ row.curator }}{% if row.published_at %} · {{ row.published_at }}{% endif %}</div>
+                        <div>{{ row.curator }}{% if row.provenance_date %} · {{ row.provenance_date_label }} {{ row.provenance_date[:10] }}{% endif %}</div>
                         {% if row.origin %}
                         <details class="metabolite-curation-origin">
                             <summary>Original source</summary>
@@ -108,8 +108,9 @@
                             {% if row.origin.path %}<div><code>{{ row.origin.path }}</code></div>{% endif %}
                             {% if row.origin.commit %}<div>Commit <code>{{ row.origin.commit[:12] }}</code></div>{% endif %}
                             {% if row.origin.attributed_curator != "Not recorded" %}<div>Attributed from Git: {{ row.origin.attributed_curator }}</div>{% elif row.origin.raw_author != "Not recorded" %}<div>Git author: {{ row.origin.raw_author }}</div>{% endif %}
-                            {% if row.origin.attribution_evidence and row.origin.attribution_evidence.pull_request %}<div>Evidence: GitHub PR #{{ row.origin.attribution_evidence.pull_request }} by {{ row.origin.attribution_evidence.login }}</div>{% endif %}
-                            {% if row.origin.authored_at %}<div>Original commit date: {{ row.origin.authored_at }}</div>{% endif %}
+                            {% if row.origin.attribution_evidence_label %}<div>Evidence: {% if row.origin.attribution_evidence_url %}<a href="{{ row.origin.attribution_evidence_url }}" rel="noopener noreferrer">{{ row.origin.attribution_evidence_label }}</a>{% else %}{{ row.origin.attribution_evidence_label }}{% endif %}</div>{% endif %}
+                            {% if row.origin.authored_at %}<div>Git commit authored: {{ row.origin.authored_at[:10] }}</div>{% endif %}
+                            {% if row.origin.authored_at and row.published_at %}<div>Included in curation release: {{ row.published_at[:10] }}</div>{% endif %}
                         </details>
                         {% endif %}
                     </td>
@@ -119,12 +120,14 @@
                 </tbody>
             </table>
         </div>
-        <nav class="metabolite-curation-pagination" aria-label="Curation pages">
+        <nav class="metabolite-curation-pagination" id="metaboliteCurationPagination" aria-label="Curation pages" {% if not index.rows %}hidden{% endif %}>
             {% if index.previous_query %}<a class="btn btn-secondary" href="{{ root_path }}/ramp-id-qa/curations?{{ index.previous_query }}">Previous</a>{% endif %}
             <span>Page {{ index.page }} of {{ index.page_count }}</span>
             {% if index.next_query %}<a class="btn btn-secondary" href="{{ root_path }}/ramp-id-qa/curations?{{ index.next_query }}">Next</a>{% endif %}
         </nav>
-        {% else %}<p>No active curations match these filters.</p>{% endif %}
+        <p id="metaboliteCurationEmpty" {% if index.rows %}hidden{% endif %}>No active curations match these filters.</p>
     </section>
 </div>
+<script type="application/json" id="metaboliteCurationRowsData">{{ index.all_rows|tojson }}</script>
+<script src="{{ root_path }}/static/metabolite_curation_review.js"></script>
 {% endblock %}
